@@ -8,6 +8,7 @@ and is decoded locally only to read non-sensitive metadata such as ``exp`` and
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -357,10 +358,12 @@ class NibaApiClient:
     async def fetch_data(self, cups: str) -> NibaData:
         """Fetch all confirmed Niba resources used by the integration."""
 
-        user = await self.get_user()
-        bills = await self.get_bills(cups)
-        consumption_period = await self.get_consumption_period(cups)
-        balance = await self.get_balance()
+        user, bills, consumption_period, balance = await asyncio.gather(
+            self.get_user(),
+            self.get_bills(cups),
+            self.get_consumption_period(cups),
+            self.get_balance(),
+        )
         return NibaData(
             user=user,
             bills=bills,

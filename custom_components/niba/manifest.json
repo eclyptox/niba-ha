@@ -1,9 +1,10 @@
 {
   "domain": "niba",
   "name": "Niba",
-  "codeowners": [],
+  "codeowners": ["@eclyptox"],
   "config_flow": true,
-  "documentation": "https://github.com/custom-components/niba",
+  "documentation": "https://github.com/eclyptox/niba-ha",
+  "homeassistant": "2024.1.0",
   "iot_class": "cloud_polling",
   "requirements": [],
   "version": "0.1.0"
