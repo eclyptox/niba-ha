@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Niba — Token",
+        "description": "Copia el JWT de tu sesión en [clientes.niba.es](https://clientes.niba.es). Puedes pegarlo con el prefijo `token ` o solo la parte JWT.",
+        "data": {
+          "token": "Token JWT"
+        }
+      },
+      "cups": {
+        "title": "Niba — CUPS",
+        "description": "Introduce el código CUPS de tu punto de suministro (lo encontrarás en cualquier factura, empieza por `ES`).",
+        "data": {
+          "cups": "CUPS"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Niba — Renovar token",
+        "description": "El token ha expirado. Copia uno nuevo desde [clientes.niba.es](https://clientes.niba.es).",
+        "data": {
+          "token": "Nuevo token JWT"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No se pudo conectar con la API de Niba.",
+      "invalid_auth": "Token rechazado por Niba.",
+      "token_expired": "El token ya ha expirado. Copia uno nuevo desde el navegador.",
+      "invalid_cups": "No se encontró consumo para ese CUPS. Comprueba el código.",
+      "unknown": "Error inesperado."
+    },
+    "abort": {
+      "already_configured": "Esta cuenta Niba ya está configurada.",
+      "reauth_successful": "Token renovado correctamente."
+    }
+  }
+}

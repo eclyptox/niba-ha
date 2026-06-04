@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 DOMAIN = "niba"
+PLATFORMS: list[str] = ["sensor"]
 
 CONF_CUPS = "cups"
-CONF_TOKEN_EXPIRES_AT = "token_expires_at"
-
-DEFAULT_NAME = "Niba"
+CONF_TOKEN = "token"
 
 API_REFRESH_MINUTES = 60
 BILLS_REFRESH_HOURS = 6
