@@ -111,6 +111,33 @@ def test_parse_consumption_period_and_balance() -> None:
     assert balance.solar_battery == 13.25
 
 
+def test_monetary_fields_accept_amount_currency_tuple() -> None:
+    """Niba API returns monetary values as [amount, "EUR"] instead of plain floats."""
+    balance = parse_balance(
+        {
+            "amount": [9.51, "EUR"],
+            "pending_amount": [0.0, "EUR"],
+            "solar_battery": [9.51, "EUR"],
+        }
+    )
+    period = parse_consumption_period(
+        {
+            "consumption_value": 231.0,
+            "consumption_amount": [50.43, "EUR"],
+            "estimated_consumption_amount": [50.43, "EUR"],
+        }
+    )
+    bills = parse_bills(
+        [{"total_amount": [8.67, "EUR"], "act_total_consumption": 101.0}]
+    )
+
+    assert balance.amount == 9.51
+    assert balance.solar_battery == 9.51
+    assert period.consumption_amount == 50.43
+    assert period.estimated_consumption_amount == 50.43
+    assert bills[0].total_amount == 8.67
+
+
 def test_accumulated_consumption_adds_bills_and_current_period() -> None:
     bills = parse_bills(
         [

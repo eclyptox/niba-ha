@@ -404,6 +404,9 @@ def _base64url_decode(value: str) -> bytes:
 def _float_or_none(value: Any) -> float | None:
     if value is None or value == "":
         return None
+    # Niba returns monetary fields as [amount, "EUR"]
+    if isinstance(value, (list, tuple)) and value:
+        value = value[0]
     try:
         return float(value)
     except (TypeError, ValueError):
