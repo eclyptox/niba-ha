@@ -149,6 +149,7 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
         ),
         extra_attrs_fn=lambda d: (
             {
+                "billing_code": d.last_bill.billing_code,
                 "periodo": d.last_bill.period,
                 "estado": d.last_bill.status,
                 "consumo_kwh": d.last_bill.act_total_consumption,
