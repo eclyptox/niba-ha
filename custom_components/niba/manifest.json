@@ -1,0 +1,10 @@
+{
+  "domain": "niba",
+  "name": "Niba",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/custom-components/niba",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}
