@@ -35,7 +35,7 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
     # ── Período actual ────────────────────────────────────────────────────────
     NibaSensorDescription(
         key="consumption_value",
-        name="Consumo período actual (Niba)",
+        name="Consumo período actual",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL,
@@ -58,7 +58,7 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
     ),
     NibaSensorDescription(
         key="consumption_amount",
-        name="Importe período actual (Niba)",
+        name="Importe período actual",
         native_unit_of_measurement="€",
         device_class=SensorDeviceClass.MONETARY,
         state_class=SensorStateClass.TOTAL,
@@ -72,10 +72,9 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
     ),
     NibaSensorDescription(
         key="estimated_consumption_amount",
-        name="Importe estimado fin de período (Niba)",
+        name="Importe estimado fin de período",
         native_unit_of_measurement="€",
         device_class=SensorDeviceClass.MONETARY,
-        state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:cash-clock",
         suggested_display_precision=2,
         value_fn=lambda d: (
@@ -87,7 +86,7 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
     ),
     NibaSensorDescription(
         key="previous_period_comparison",
-        name="Comparación período anterior (Niba)",
+        name="Comparación período anterior",
         native_unit_of_measurement="%",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:percent",
@@ -102,10 +101,9 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
     # ── Saldo ─────────────────────────────────────────────────────────────────
     NibaSensorDescription(
         key="balance_amount",
-        name="Saldo monedero (Niba)",
+        name="Saldo monedero",
         native_unit_of_measurement="€",
         device_class=SensorDeviceClass.MONETARY,
-        state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:wallet",
         suggested_display_precision=2,
         value_fn=lambda d: (
@@ -125,10 +123,9 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
     ),
     NibaSensorDescription(
         key="solar_battery",
-        name="Batería solar (Niba)",
+        name="Batería solar",
         native_unit_of_measurement="€",
         device_class=SensorDeviceClass.MONETARY,
-        state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:solar-power",
         suggested_display_precision=2,
         value_fn=lambda d: (
@@ -140,10 +137,9 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
     # ── Última factura ────────────────────────────────────────────────────────
     NibaSensorDescription(
         key="last_bill_amount",
-        name="Última factura (Niba)",
+        name="Última factura",
         native_unit_of_measurement="€",
         device_class=SensorDeviceClass.MONETARY,
-        state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:receipt",
         suggested_display_precision=2,
         value_fn=lambda d: (
@@ -166,7 +162,7 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
     # ── Energy Dashboard ──────────────────────────────────────────────────────
     NibaSensorDescription(
         key="accumulated_consumption",
-        name="Consumo acumulado (Niba)",
+        name="Consumo acumulado",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
