@@ -138,6 +138,20 @@ def test_monetary_fields_accept_amount_currency_tuple() -> None:
     assert bills[0].total_amount == 8.67
 
 
+def test_last_bill_returns_most_recent_by_end_at() -> None:
+    bills = parse_bills(
+        [
+            {"id": "1", "end_at": "2026-03-31", "total_amount": [8.67, "EUR"]},
+            {"id": "2", "end_at": "2026-04-30", "total_amount": [17.34, "EUR"]},
+        ]
+    )
+    data = NibaData(user=parse_user({}), bills=bills, consumption_period=None, balance=None)
+
+    assert data.last_bill is not None
+    assert data.last_bill.id == "2"
+    assert data.last_bill.total_amount == 17.34
+
+
 def test_accumulated_consumption_adds_bills_and_current_period() -> None:
     bills = parse_bills(
         [

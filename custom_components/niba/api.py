@@ -156,9 +156,10 @@ class NibaData:
 
     @property
     def last_bill(self) -> Bill | None:
-        """Return the most recent bill, assuming the API returns newest first."""
+        """Return the most recent bill by end_at date."""
 
-        return self.bills[0] if self.bills else None
+        dated = [b for b in self.bills if b.end_at is not None]
+        return max(dated, key=lambda b: b.end_at) if dated else (self.bills[0] if self.bills else None)  # type: ignore[arg-type]
 
     @property
     def accumulated_consumption(self) -> float | None:
