@@ -43,6 +43,15 @@ class NibaCoordinator(DataUpdateCoordinator[NibaData]):
                 data = await self.client.fetch_data(self._cups)
                 self._cached_bills = data.bills
                 self._last_bills_fetch = datetime.now(UTC)
+                _LOGGER.debug("balance raw: %s", data.balance.raw if data.balance else None)
+                _LOGGER.debug(
+                    "consumption_period raw: %s",
+                    data.consumption_period.raw if data.consumption_period else None,
+                )
+                _LOGGER.debug(
+                    "last_bill raw: %s",
+                    data.last_bill.raw if data.last_bill else None,
+                )
                 return data
 
             user, consumption_period, balance = await asyncio.gather(
