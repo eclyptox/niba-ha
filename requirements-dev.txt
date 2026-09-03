@@ -1,0 +1,4 @@
+# Brings in Home Assistant itself plus pytest, pytest-asyncio and the
+# fixtures used by tests/conftest.py.
+pytest-homeassistant-custom-component>=0.13.205
+ruff>=0.6

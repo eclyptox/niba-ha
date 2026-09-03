@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Niba — Token",
-        "description": "Copia el JWT de tu sesión en [clientes.niba.es](https://clientes.niba.es). Puedes pegarlo con el prefijo `token ` o solo la parte JWT.",
+        "description": "Copia el JWT de tu sesión en [clientes.niba.es]({url}). Puedes pegarlo con el prefijo `token ` o solo la parte JWT.",
         "data": {
           "token": "Token JWT"
         }
@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Niba — Renovar token",
-        "description": "El token ha expirado. Copia uno nuevo desde [clientes.niba.es](https://clientes.niba.es).",
+        "description": "El token ha expirado. Copia uno nuevo desde [clientes.niba.es]({url}).",
         "data": {
           "token": "Nuevo token JWT"
         }

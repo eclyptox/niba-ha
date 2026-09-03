@@ -7,10 +7,11 @@ import json
 
 import pytest
 
-from niba.api import (
+from custom_components.niba.api import (
     NibaAuthError,
     NibaData,
     decode_token,
+    normalize_cups,
     parse_balance,
     parse_bills,
     parse_consumption_period,
@@ -43,6 +44,11 @@ def test_decode_token_accepts_authorization_header_value() -> None:
 def test_decode_token_rejects_invalid_jwt() -> None:
     with pytest.raises(NibaAuthError):
         decode_token("not-a-jwt")
+
+
+def test_normalize_cups_uses_first_20_characters() -> None:
+    assert normalize_cups(" es0021000000000000aa0f ") == "ES0021000000000000AA"
+    assert normalize_cups("ES0021000000000000AA") == "ES0021000000000000AA"
 
 
 def test_parse_user() -> None:
@@ -145,7 +151,9 @@ def test_last_bill_returns_most_recent_by_end_at() -> None:
             {"id": "2", "end_at": "2026-04-30", "total_amount": [17.34, "EUR"]},
         ]
     )
-    data = NibaData(user=parse_user({}), bills=bills, consumption_period=None, balance=None)
+    data = NibaData(
+        user=parse_user({}), bills=bills, consumption_period=None, balance=None
+    )
 
     assert data.last_bill is not None
     assert data.last_bill.id == "2"
@@ -165,3 +173,74 @@ def test_accumulated_consumption_adds_bills_and_current_period() -> None:
     data = NibaData(user=user, bills=bills, consumption_period=period, balance=None)
 
     assert data.accumulated_consumption == 161.0
+
+
+def _data(
+    bills_payload: list[dict], period_value: float | None, floor: float | None = None
+) -> NibaData:
+    return NibaData(
+        user=parse_user({}),
+        bills=parse_bills(bills_payload),
+        consumption_period=(
+            None
+            if period_value is None
+            else parse_consumption_period({"consumption_value": period_value})
+        ),
+        balance=None,
+        accumulated_floor=floor,
+    )
+
+
+def test_accumulated_consumption_without_floor_matches_raw_sum() -> None:
+    data = _data([{"act_total_consumption": 100}], 10)
+
+    assert data.raw_accumulated_consumption == 110
+    assert data.accumulated_consumption == 110
+
+
+def test_accumulated_consumption_clamps_the_dip_when_a_period_closes() -> None:
+    """Period restarts at ~0 before its bill lands: the total must not drop."""
+
+    data = _data([{"act_total_consumption": 100}], 0.4, floor=110.0)
+
+    assert data.raw_accumulated_consumption == 100.4
+    assert data.accumulated_consumption == 110.0
+
+
+def test_accumulated_consumption_resumes_growing_once_the_bill_arrives() -> None:
+    data = _data(
+        [{"act_total_consumption": 100}, {"act_total_consumption": 12}],
+        3.0,
+        floor=110.0,
+    )
+
+    assert data.accumulated_consumption == 115.0
+
+
+def test_accumulated_consumption_falls_back_to_floor_without_data() -> None:
+    data = _data([], None, floor=110.0)
+
+    assert data.raw_accumulated_consumption is None
+    assert data.accumulated_consumption == 110.0
+
+
+def test_accumulated_consumption_is_none_without_data_or_floor() -> None:
+    assert _data([], None).accumulated_consumption is None
+
+
+def test_last_bill_falls_back_to_first_when_no_bill_has_an_end_date() -> None:
+    bills = parse_bills([{"id": "1"}, {"id": "2"}])
+    data = NibaData(
+        user=parse_user({}), bills=bills, consumption_period=None, balance=None
+    )
+
+    assert data.last_bill is not None
+    assert data.last_bill.id == "1"
+
+
+def test_last_bill_is_none_without_bills() -> None:
+    data = NibaData(
+        user=parse_user({}), bills=(), consumption_period=None, balance=None
+    )
+
+    assert data.last_bill is None

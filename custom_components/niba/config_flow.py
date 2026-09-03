@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+import voluptuous as vol
 
-from .api import NibaApiClient, NibaApiError, NibaAuthError, decode_token
-from .const import CONF_CUPS, CONF_TOKEN, DOMAIN
+from .api import (
+    NibaApiClient,
+    NibaApiError,
+    NibaAuthError,
+    decode_token,
+    normalize_cups,
+)
+from .const import CONF_CUPS, CONF_TOKEN, DOMAIN, NIBA_CLIENT_URL
 
 
 class NibaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -19,6 +24,8 @@ class NibaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
+        """Initialise the flow state shared between the token and CUPS steps."""
+
         self._token: str = ""
         self._user_email: str | None = None
 
@@ -52,6 +59,7 @@ class NibaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema({vol.Required(CONF_TOKEN): str}),
             errors=errors,
+            description_placeholders={"url": NIBA_CLIENT_URL},
         )
 
     async def async_step_cups(
@@ -61,7 +69,7 @@ class NibaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         errors: dict[str, str] = {}
         if user_input is not None:
-            cups = user_input[CONF_CUPS].strip().upper()
+            cups = normalize_cups(user_input[CONF_CUPS])
             try:
                 session = async_get_clientsession(self.hass)
                 client = NibaApiClient(session, self._token)
@@ -73,11 +81,13 @@ class NibaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception:  # noqa: BLE001
                 errors["base"] = "unknown"
             else:
-                unique_id = self._user_email or cups
+                # Include the CUPS so one Niba account can hold several
+                # supply points; existing entries keep their email unique_id.
+                unique_id = f"{self._user_email}:{cups}" if self._user_email else cups
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
-                    title=f"Niba {self._user_email or cups}",
+                    title=f"Niba {cups}",
                     data={CONF_TOKEN: self._token, CONF_CUPS: cups},
                 )
 
@@ -90,6 +100,8 @@ class NibaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
     ) -> config_entries.ConfigFlowResult:
+        """Start the reauth flow when the stored token stops working."""
+
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -125,4 +137,5 @@ class NibaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reauth_confirm",
             data_schema=vol.Schema({vol.Required(CONF_TOKEN): str}),
             errors=errors,
+            description_placeholders={"url": NIBA_CLIENT_URL},
         )

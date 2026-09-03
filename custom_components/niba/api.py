@@ -153,17 +153,23 @@ class NibaData:
     bills: tuple[Bill, ...]
     consumption_period: ConsumptionPeriod | None
     balance: Balance | None
+    accumulated_floor: float | None = None
+    """Lowest value ``accumulated_consumption`` may report (see the property)."""
 
     @property
     def last_bill(self) -> Bill | None:
         """Return the most recent bill by end_at date."""
 
         dated = [b for b in self.bills if b.end_at is not None]
-        return max(dated, key=lambda b: b.end_at) if dated else (self.bills[0] if self.bills else None)  # type: ignore[arg-type]
+        return (
+            max(dated, key=lambda b: b.end_at)
+            if dated
+            else (self.bills[0] if self.bills else None)
+        )  # type: ignore[arg-type]
 
     @property
-    def accumulated_consumption(self) -> float | None:
-        """Return historical bills plus current-period kWh for Energy Dashboard."""
+    def raw_accumulated_consumption(self) -> float | None:
+        """Return historical bills plus current-period kWh, as reported by Niba."""
 
         values = [
             bill.act_total_consumption
@@ -176,6 +182,24 @@ class NibaData:
         ):
             values.append(self.consumption_period.consumption_value)
         return sum(values) if values else None
+
+    @property
+    def accumulated_consumption(self) -> float | None:
+        """Return a monotonic accumulated kWh total for the Energy Dashboard.
+
+        The raw sum dips when Niba closes a billing period: the current period
+        restarts near zero days before the matching bill shows up in ``/bills``.
+        Home Assistant reads a decrease on a ``TOTAL_INCREASING`` sensor as a
+        meter reset, so the coordinator feeds back the highest value already
+        reported as ``accumulated_floor`` and the dip is clamped away.
+        """
+
+        raw = self.raw_accumulated_consumption
+        if self.accumulated_floor is None:
+            return raw
+        if raw is None:
+            return self.accumulated_floor
+        return max(raw, self.accumulated_floor)
 
 
 def decode_token(token: str) -> TokenInfo:
@@ -219,6 +243,20 @@ def normalize_token(token: str) -> str:
     if not token:
         raise NibaAuthError("Empty token")
     return token
+
+
+def normalize_cups(cups: str) -> str:
+    """Normalize CUPS before sending it to Niba endpoints.
+
+    Niba's current frontend validates and matches electricity CUPS using the
+    first 20 characters. Users often copy the full Spanish CUPS including the
+    optional suffix/control characters, and Niba's private API can now return
+    ``value_error.cups_not_found`` for that longer value even when the contract
+    is valid.
+    """
+
+    cups = "".join(str(cups).split()).upper()
+    return cups[:20] if len(cups) > 20 else cups
 
 
 def parse_user(payload: Mapping[str, Any]) -> User:
@@ -317,6 +355,8 @@ class NibaApiClient:
         *,
         base_url: str = API_BASE_URL,
     ) -> None:
+        """Store the injected HTTP session and the raw authorization token."""
+
         self._session = session
         self._token = normalize_token(token)
         self._base_url = base_url.rstrip("/")
@@ -338,11 +378,13 @@ class NibaApiClient:
     async def get_bills(self, cups: str) -> tuple[Bill, ...]:
         """Fetch and parse historical bills for a CUPS."""
 
+        cups = normalize_cups(cups)
         return parse_bills(await self._get(f"/cups/{cups}/bills"))
 
     async def get_consumption_period(self, cups: str) -> ConsumptionPeriod:
         """Fetch and parse current billing-period consumption for a CUPS."""
 
+        cups = normalize_cups(cups)
         payload = await self._get(f"/cups/{cups}/consumption-period")
         if not isinstance(payload, Mapping):
             raise NibaPayloadError("Consumption period response must be an object")
@@ -393,7 +435,7 @@ class NibaApiClient:
                 return await response.json()
         except NibaApiError:
             raise
-        except Exception as err:  # noqa: BLE001 - keep client independent of aiohttp.
+        except Exception as err:
             raise NibaApiError("Error communicating with Niba API") from err
 
 

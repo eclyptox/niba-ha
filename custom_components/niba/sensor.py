@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -18,17 +19,19 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .api import NibaData
 from .const import DOMAIN
 from .coordinator import NibaCoordinator
-from .api import NibaData
 
 
 @dataclass(frozen=True)
 class NibaSensorDescription(SensorEntityDescription):
-    """Extends SensorEntityDescription with a value extractor and optional extra attrs."""
+    """SensorEntityDescription plus a value extractor and optional extra attrs."""
 
     value_fn: Callable[[NibaData], Any] | None = None
     extra_attrs_fn: Callable[[NibaData], dict[str, Any]] | None = None
+    restore_floor: bool = False
+    """Seed the coordinator's monotonic clamp from the restored state."""
 
 
 SENSORS: tuple[NibaSensorDescription, ...] = (
@@ -43,7 +46,8 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=lambda d: (
             round(d.consumption_period.consumption_value, 2)
-            if d.consumption_period and d.consumption_period.consumption_value is not None
+            if d.consumption_period
+            and d.consumption_period.consumption_value is not None
             else None
         ),
         extra_attrs_fn=lambda d: (
@@ -66,7 +70,8 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=lambda d: (
             round(d.consumption_period.consumption_amount, 2)
-            if d.consumption_period and d.consumption_period.consumption_amount is not None
+            if d.consumption_period
+            and d.consumption_period.consumption_amount is not None
             else None
         ),
     ),
@@ -75,6 +80,7 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
         name="Importe estimado fin de período",
         native_unit_of_measurement="€",
         device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
         icon="mdi:cash-clock",
         suggested_display_precision=2,
         value_fn=lambda d: (
@@ -104,6 +110,7 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
         name="Saldo monedero",
         native_unit_of_measurement="€",
         device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
         icon="mdi:wallet",
         suggested_display_precision=2,
         value_fn=lambda d: (
@@ -126,6 +133,7 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
         name="Batería solar",
         native_unit_of_measurement="€",
         device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
         icon="mdi:solar-power",
         suggested_display_precision=2,
         value_fn=lambda d: (
@@ -140,6 +148,7 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
         name="Última factura",
         native_unit_of_measurement="€",
         device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
         icon="mdi:receipt",
         suggested_display_precision=2,
         value_fn=lambda d: (
@@ -163,6 +172,7 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
     # ── Energy Dashboard ──────────────────────────────────────────────────────
     NibaSensorDescription(
         key="accumulated_consumption",
+        restore_floor=True,
         name="Consumo acumulado",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
@@ -179,10 +189,12 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
 
 
 def _device_info(entry: ConfigEntry) -> dict[str, Any]:
+    """Return one device per config entry, so several CUPS stay separate."""
+
     return {
         "identifiers": {(DOMAIN, entry.entry_id)},
         "manufacturer": "Niba",
-        "name": "Niba",
+        "name": entry.title or "Niba",
     }
 
 
@@ -193,9 +205,12 @@ async def async_setup_entry(
 ) -> None:
     """Set up Niba sensors."""
 
-    coordinator: NibaCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: NibaCoordinator = entry.runtime_data
     async_add_entities(
-        NibaSensor(coordinator, entry, description) for description in SENSORS
+        (NibaRestoringSensor if description.restore_floor else NibaSensor)(
+            coordinator, entry, description
+        )
+        for description in SENSORS
     )
 
 
@@ -210,6 +225,8 @@ class NibaSensor(CoordinatorEntity[NibaCoordinator], SensorEntity):
         entry: ConfigEntry,
         description: NibaSensorDescription,
     ) -> None:
+        """Bind one sensor description to the shared coordinator."""
+
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
@@ -219,16 +236,41 @@ class NibaSensor(CoordinatorEntity[NibaCoordinator], SensorEntity):
 
     @property
     def available(self) -> bool:
+        """Return whether the coordinator holds usable data."""
+
         return self.coordinator.data is not None
 
     @property
     def native_value(self) -> Any:
+        """Return the sensor value extracted from the latest Niba data."""
+
         if self.coordinator.data is None or self.entity_description.value_fn is None:
             return None
         return self.entity_description.value_fn(self.coordinator.data)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        if self.coordinator.data is None or self.entity_description.extra_attrs_fn is None:
+        """Return the description's extra attributes, if it declares any."""
+
+        if (
+            self.coordinator.data is None
+            or self.entity_description.extra_attrs_fn is None
+        ):
             return {}
         return self.entity_description.extra_attrs_fn(self.coordinator.data)
+
+
+class NibaRestoringSensor(NibaSensor, RestoreSensor):
+    """Accumulated sensor that seeds the coordinator clamp on restart."""
+
+    async def async_added_to_hass(self) -> None:
+        """Feed the last known total back into the coordinator."""
+
+        await super().async_added_to_hass()
+        last_data = await self.async_get_last_sensor_data()
+        if last_data is None:
+            return
+        try:
+            self.coordinator.seed_accumulated_floor(float(last_data.native_value))
+        except (TypeError, ValueError):
+            return
