@@ -67,6 +67,7 @@ Los sensores son declarativos: `NibaSensorDescription` extiende `SensorEntityDes
 ## Al editar
 
 - El mínimo de HA (**2024.11**) se declara **solo en `hacs.json`**: `homeassistant` no es una clave válida de `manifest.json` y hassfest la rechaza (`CUSTOM_INTEGRATION_MANIFEST_SCHEMA` no la contempla). Ese mínimo viene de `_get_reauth_entry()` y `async_update_reload_and_abort(data_updates=...)`, ambos de 2024.11; súbelo si usas una API más nueva.
+- El portal guarda el JWT en **`localStorage`, clave `token`** (verificado en el bundle del frontend: `localStorage.getItem("token")`). Los diálogos del config flow y el README explican el procedimiento; si Niba cambia dónde lo guarda, hay que actualizar los tres sitios a la vez.
 - **`strings.json` no puede contener URLs literales**: hassfest las rechaza. Pásalas como `description_placeholders` (ver `NIBA_CLIENT_URL` y los `async_show_form` del config flow).
 - `strings.json` y `translations/es.json` son **idénticos** y deben mantenerse en sync; toda la UI y los mensajes de usuario están en español.
 - Sube `version` en `custom_components/niba/manifest.json` cuando el cambio sea visible para el usuario: es lo que HACS muestra como actualización.

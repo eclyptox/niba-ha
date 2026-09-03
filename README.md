@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?logo=homeassistantcommunitystore&logoColor=white)](https://github.com/hacs/integration)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.11%2B-blue?logo=homeassistant&logoColor=white)](https://www.home-assistant.io/)
-[![Tests](https://img.shields.io/badge/tests-61%20passed-brightgreen?logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/tests-63%20passed-brightgreen?logo=pytest&logoColor=white)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Integración personalizada para Home Assistant que consulta el consumo eléctrico, facturas y saldo de los clientes de [Niba](https://niba.es), la cooperativa de energía renovable.
@@ -42,11 +42,22 @@ Si tienes varios puntos de suministro en la misma cuenta, añade la integración
 
 Niba no expone una API pública. La integración usa el JWT que genera la web de clientes:
 
-1. Entra en [clientes.niba.es](https://clientes.niba.es) con tu navegador.
-2. Abre DevTools (F12) → pestaña **Application → Local Storage** (o **Network** → cualquier petición a `api.clientes.niba.es`).
-3. Copia el valor del token. Puedes pegarlo tal cual (`token eyJ...`) o solo la parte JWT (`eyJ...`).
+1. Entra en [clientes.niba.es](https://clientes.niba.es) e inicia sesión.
+2. Pulsa **F12** para abrir las herramientas de desarrollo del navegador.
+3. Ve a **Application → Local Storage → `https://clientes.niba.es`** (en Firefox la pestaña se llama **Almacenamiento**).
+4. Copia el valor de la clave **`token`**: un texto largo que empieza por `eyJ`.
+
+Puedes pegarlo tal cual (`token eyJ...`) o solo la parte JWT (`eyJ...`).
+
+> Como alternativa, en la pestaña **Network** abre cualquier petición a `api.clientes.niba.es` y copia el valor de la cabecera `authorization` (sin el prefijo `token `, o con él, da igual).
 
 El token se decodifica localmente solo para leer la fecha de expiración y el email. Niba lo valida al llamar a `/users/me`.
+
+### Cuando el token caduca
+
+Los tokens de Niba caducan cada cierto tiempo. Cuando ocurre, la integración lo detecta y Home Assistant muestra el aviso **«Se requiere volver a autenticar»** en *Ajustes → Dispositivos y servicios*. Pulsa **Volver a autenticar** y repite los pasos de arriba; el diálogo los explica también.
+
+Si la clave `token` no aparece en el navegador, cierra sesión en la web de Niba y vuelve a entrar para que se genere una nueva.
 
 ## Endpoints utilizados
 

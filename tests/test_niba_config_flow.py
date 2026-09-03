@@ -14,7 +14,12 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.niba.api import NibaApiError, NibaAuthError, parse_user
-from custom_components.niba.const import CONF_CUPS, CONF_TOKEN, DOMAIN
+from custom_components.niba.const import (
+    CONF_CUPS,
+    CONF_TOKEN,
+    DOMAIN,
+    NIBA_CLIENT_URL,
+)
 
 CUPS = "ES0021000000000000AA"
 OTHER_CUPS = "ES0021000000000000BB"
@@ -196,3 +201,60 @@ async def test_reauth_rejects_an_expired_token(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {CONF_TOKEN: "token_expired"}
     assert entry.data[CONF_TOKEN] == "old-token"
+
+
+async def test_token_steps_expose_the_portal_url_placeholder(
+    hass: HomeAssistant,
+) -> None:
+    """Without the placeholder the dialog would show a literal '{url}'."""
+
+    with _patch_client():
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+    assert result["description_placeholders"] == {"url": NIBA_CLIENT_URL}
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=f"a@b.c:{CUPS}",
+        data={CONF_TOKEN: "old-token", CONF_CUPS: CUPS},
+    )
+    entry.add_to_hass(hass)
+    with _patch_client():
+        result = await entry.start_reauth_flow(hass)
+
+    # Home Assistant adds its own "name" placeholder to reauth flows.
+    assert result["description_placeholders"]["url"] == NIBA_CLIENT_URL
+
+
+async def test_every_placeholder_in_strings_is_provided(hass: HomeAssistant) -> None:
+    """Each {placeholder} in strings.json must be filled by the flow."""
+
+    import json
+    import pathlib
+    import re
+
+    strings = json.loads(
+        (
+            pathlib.Path(__file__).parent.parent / "custom_components/niba/strings.json"
+        ).read_text()
+    )
+
+    with _patch_client():
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        provided = set(result["description_placeholders"] or {})
+        needed = set(
+            re.findall(r"\{(\w+)\}", strings["config"]["step"]["user"]["description"])
+        )
+        assert needed <= provided
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_TOKEN: _jwt()}
+        )
+        provided = set(result["description_placeholders"] or {})
+        needed = set(
+            re.findall(r"\{(\w+)\}", strings["config"]["step"]["cups"]["description"])
+        )
+        assert needed <= provided

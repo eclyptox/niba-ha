@@ -3,21 +3,21 @@
     "step": {
       "user": {
         "title": "Niba — Token",
-        "description": "Copia el JWT de tu sesión en [clientes.niba.es]({url}). Puedes pegarlo con el prefijo `token ` o solo la parte JWT.",
+        "description": "Niba no tiene API pública, así que la integración usa el token de tu sesión en la web de clientes.\n\n1. Abre [clientes.niba.es]({url}) e inicia sesión.\n2. Pulsa **F12** para abrir las herramientas de desarrollo del navegador.\n3. Ve a la pestaña **Application** (**Almacenamiento** en Firefox) → **Local Storage** → `{url}`.\n4. Copia el valor de la clave `token`. Es un texto largo que empieza por `eyJ`.\n\nPégalo abajo tal cual: da igual si incluye el prefijo `token ` o solo el JWT.",
         "data": {
           "token": "Token JWT"
         }
       },
       "cups": {
         "title": "Niba — CUPS",
-        "description": "Introduce el código CUPS de tu punto de suministro (lo encontrarás en cualquier factura, empieza por `ES`).",
+        "description": "Introduce el CUPS de tu punto de suministro. Lo encontrarás en cualquier factura de Niba y empieza por `ES`. Si tienes varios suministros, añade la integración una vez por cada uno.",
         "data": {
           "cups": "CUPS"
         }
       },
       "reauth_confirm": {
         "title": "Niba — Renovar token",
-        "description": "El token ha expirado. Copia uno nuevo desde [clientes.niba.es]({url}).",
+        "description": "El token ha caducado y Niba ha dejado de aceptarlo. Los tokens caducan cada cierto tiempo, así que habrá que repetir esto de vez en cuando.\n\n1. Abre [clientes.niba.es]({url}) e inicia sesión de nuevo.\n2. Pulsa **F12** para abrir las herramientas de desarrollo del navegador.\n3. Ve a la pestaña **Application** (**Almacenamiento** en Firefox) → **Local Storage** → `{url}`.\n4. Copia el valor de la clave `token`. Es un texto largo que empieza por `eyJ`.\n\nSi no aparece, cierra sesión y vuelve a entrar para que la web genere uno nuevo.",
         "data": {
           "token": "Nuevo token JWT"
         }
