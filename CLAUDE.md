@@ -52,6 +52,8 @@ Flujo de datos: `config_flow` (token + CUPS) → `ConfigEntry` → `NibaCoordina
 - `_get` traduce los fallos a la jerarquía `NibaApiError` → `NibaAuthError` (401/403) / `NibaPayloadError` (forma inesperada). Esta jerarquía es el contrato con el coordinator y el config flow; cualquier excepción nueva debe heredar de `NibaApiError`.
 - `fetch_data` lanza las cuatro peticiones en paralelo con `asyncio.gather`.
 
+`ConsumptionPeriod` deriva `elapsed_days`, `remaining_days` y las medias diarias. `daily_average_value` / `daily_average_amount` devuelven lo que manda Niba y, si falta, lo calculan dividiendo entre `elapsed_days`. Ese conteo **no es inclusivo** (`(fin - inicio).days`): es lo que hace que 1 ago – 2 sept dé 32 días y las medias cuadren con la web (12,7 kWh y 2,28 €).
+
 Propiedades derivadas en `NibaData`, no en los sensores: `last_bill` (la más reciente por `end_at`, con caída a `bills[0]` si ninguna tiene fecha) y `accumulated_consumption`.
 
 **El acumulado es monotónico a propósito.** `raw_accumulated_consumption` suma facturas + período actual, pero ese valor **decrece** cuando Niba cierra un período: el consumo vuelve a ~0 días antes de que la factura aparezca en `/bills`. HA lee un decremento en un sensor `TOTAL_INCREASING` como reinicio de contador, así que el coordinator realimenta el máximo ya emitido en `NibaData.accumulated_floor` y `accumulated_consumption` devuelve `max(raw, floor)`. El floor sobrevive a reinicios porque `NibaRestoringSensor` lo siembra desde el estado restaurado. Si tocas este camino, mantén los tests de `test_accumulated_total_never_drops_when_a_period_closes`.

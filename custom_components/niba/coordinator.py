@@ -18,11 +18,30 @@ from .api import (
     NibaApiError,
     NibaAuthError,
     NibaData,
+    decode_token,
     normalize_cups,
 )
-from .const import API_REFRESH_MINUTES, BILLS_REFRESH_HOURS, CONF_CUPS, DOMAIN
+from .const import (
+    API_REFRESH_MINUTES,
+    BILLS_REFRESH_HOURS,
+    CONF_CUPS,
+    CONF_TOKEN,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _token_expiry(token: str | None) -> datetime | None:
+    """Return the JWT expiry, or None if it cannot be decoded."""
+
+    if not token:
+        return None
+    try:
+        return decode_token(token).expires_at
+    except NibaAuthError:
+        return None
+
 
 EVENT_NEW_BILL = f"{DOMAIN}_new_bill"
 
@@ -44,6 +63,7 @@ class NibaCoordinator(DataUpdateCoordinator[NibaData]):
         self._last_bills_fetch: datetime | None = None
         self._known_bill_id: str | None = None
         self._accumulated_floor: float | None = None
+        self._token_expires_at = _token_expiry(entry.data.get(CONF_TOKEN))
         super().__init__(
             hass,
             _LOGGER,
@@ -64,10 +84,14 @@ class NibaCoordinator(DataUpdateCoordinator[NibaData]):
         if self._accumulated_floor is None or value > self._accumulated_floor:
             self._accumulated_floor = value
 
-    def _with_accumulated_floor(self, data: NibaData) -> NibaData:
-        """Clamp the accumulated total and remember the highest value reported."""
+    def _finalize(self, data: NibaData) -> NibaData:
+        """Attach coordinator-held state and clamp the accumulated total."""
 
-        data = replace(data, accumulated_floor=self._accumulated_floor)
+        data = replace(
+            data,
+            accumulated_floor=self._accumulated_floor,
+            token_expires_at=self._token_expires_at,
+        )
         self._accumulated_floor = data.accumulated_consumption
         return data
 
@@ -78,14 +102,14 @@ class NibaCoordinator(DataUpdateCoordinator[NibaData]):
                 self._cached_bills = data.bills
                 self._last_bills_fetch = datetime.now(UTC)
                 self._check_new_bill(data)
-                return self._with_accumulated_floor(data)
+                return self._finalize(data)
 
             user, consumption_period, balance = await asyncio.gather(
                 self.client.get_user(),
                 self.client.get_consumption_period(self._cups),
                 self.client.get_balance(),
             )
-            return self._with_accumulated_floor(
+            return self._finalize(
                 NibaData(
                     user=user,
                     bills=self._cached_bills,

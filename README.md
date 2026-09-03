@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?logo=homeassistantcommunitystore&logoColor=white)](https://github.com/hacs/integration)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.11%2B-blue?logo=homeassistant&logoColor=white)](https://www.home-assistant.io/)
-[![Tests](https://img.shields.io/badge/tests-63%20passed-brightgreen?logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/tests-75%20passed-brightgreen?logo=pytest&logoColor=white)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Integración personalizada para Home Assistant que consulta el consumo eléctrico, facturas y saldo de los clientes de [Niba](https://niba.es), la cooperativa de energía renovable.
@@ -13,14 +13,17 @@ Integración personalizada para Home Assistant que consulta el consumo eléctric
 
 | Sensor | Descripción |
 | --- | --- |
-| Consumo período actual | kWh consumidos en el período de facturación en curso |
+| Consumo período actual | kWh del período en curso, con fechas y días transcurridos/restantes como atributos |
 | Importe período actual | Importe acumulado del período en curso |
 | Importe estimado fin de período | Estimación de Niba para el cierre del período |
+| Consumo medio diario | kWh por día del período en curso |
+| Importe medio diario | Coste por día del período en curso |
 | Comparación período anterior | Variación porcentual frente al período anterior |
 | Saldo monedero | Saldo disponible, con lo pendiente, cargado y gastado como atributos |
 | Batería solar | Saldo de la batería solar |
-| Última factura | Importe de la última factura, con período, estado y consumo como atributos |
+| Última factura | Importe de la última factura, con el desglose completo como atributos: período, estado, consumo, base imponible, impuestos, término de potencia y de energía, alquiler del contador y excedentes de autoconsumo |
 | Consumo acumulado | Total histórico en kWh, apto para el Energy Dashboard |
+| Caducidad del token | *(diagnóstico)* Fecha de expiración del JWT, para avisarte por automatización antes de que caduque |
 
 Cuando Niba emite una factura nueva, la integración crea una notificación persistente y dispara el evento `niba_new_bill` (con `billing_code`, `period`, `total_amount` y `status`), que puedes usar como disparador de automatizaciones.
 
@@ -75,7 +78,19 @@ Si la clave `token` no aparece en el navegador, cierra sesión en la web de Niba
 - El token JWT se valida localmente (expiración) antes de cada ciclo; si ha expirado, la entrada de configuración pasa a estado de error para que el usuario lo renueve.
 - Intervalo de actualización: consumo cada 60 minutos, facturas cada 6 horas.
 - El CUPS se normaliza a sus primeros 20 caracteres antes de cada petición: Niba responde `cups_not_found` si se le envía el código completo de 22 dígitos.
+- Las medias diarias usan los valores que envía Niba; si no llegan, se calculan dividiendo el consumo del período entre los días transcurridos (el mismo criterio que la web).
 - El sensor de consumo acumulado nunca decrece. El total en bruto baja durante los días que van desde que Niba cierra un período hasta que emite la factura correspondiente, y Home Assistant leería esa bajada como un reinicio de contador en el Energy Dashboard.
+
+### Limitación conocida
+
+En algunas cuentas el sensor **Batería solar** devuelve el mismo valor que **Saldo monedero**: la API manda ambos campos por separado (`amount` y `solar_battery`) pero con idéntico contenido. Para comprobar qué llega en tu caso, activa el log de depuración y busca `Raw /balances payload`:
+
+```yaml
+logger:
+  default: warning
+  logs:
+    custom_components.niba: debug
+```
 
 ## Desarrollo
 

@@ -14,7 +14,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy
+from homeassistant.const import EntityCategory, UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -55,6 +55,8 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
                 "inicio": d.consumption_period.start_at,
                 "fin": d.consumption_period.end_at,
                 "ultima_lectura": d.consumption_period.date_last_data,
+                "dias_transcurridos": d.consumption_period.elapsed_days,
+                "dias_restantes": d.consumption_period.remaining_days,
             }
             if d.consumption_period
             else {}
@@ -162,12 +164,57 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
                 "periodo": d.last_bill.period,
                 "estado": d.last_bill.status,
                 "consumo_kwh": d.last_bill.act_total_consumption,
+                "base_imponible": d.last_bill.base_amount,
+                "impuestos": d.last_bill.tax_amount,
+                "termino_potencia": d.last_bill.term_power,
+                "termino_energia": d.last_bill.nm_term_ener,
+                "alquiler_contador": d.last_bill.nm_rental_amount,
                 "excedente_autoconsumo": d.last_bill.self_consumption_surplus,
                 "descuento_autoconsumo": d.last_bill.self_consumption_discount,
+                "excedente_total": d.last_bill.total_surplus,
+                "excedente_monedero": d.last_bill.wallet_surplus,
             }
             if d.last_bill
             else {}
         ),
+    ),
+    # ── Medias diarias ────────────────────────────────────────────────────────────
+    NibaSensorDescription(
+        key="daily_average_value",
+        name="Consumo medio diario",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:chart-line",
+        suggested_display_precision=1,
+        value_fn=lambda d: (
+            round(d.consumption_period.daily_average_value, 2)
+            if d.consumption_period
+            and d.consumption_period.daily_average_value is not None
+            else None
+        ),
+    ),
+    NibaSensorDescription(
+        key="daily_average_amount",
+        name="Importe medio diario",
+        native_unit_of_measurement="€",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:cash-clock",
+        suggested_display_precision=2,
+        value_fn=lambda d: (
+            round(d.consumption_period.daily_average_amount, 2)
+            if d.consumption_period
+            and d.consumption_period.daily_average_amount is not None
+            else None
+        ),
+    ),
+    # ── Diagnóstico ───────────────────────────────────────────────────────────────
+    NibaSensorDescription(
+        key="token_expires_at",
+        name="Caducidad del token",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:key-alert-outline",
+        value_fn=lambda d: d.token_expires_at,
     ),
     # ── Energy Dashboard ──────────────────────────────────────────────────────
     NibaSensorDescription(

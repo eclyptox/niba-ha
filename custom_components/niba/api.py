@@ -12,11 +12,14 @@ import asyncio
 import base64
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 import json
+import logging
 from typing import Any, Protocol
 
 API_BASE_URL = "https://api.clientes.niba.es/api"
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class NibaApiError(Exception):
@@ -132,6 +135,51 @@ class ConsumptionPeriod:
     previous_period_comparison: float | None
     raw: Mapping[str, Any]
 
+    @property
+    def elapsed_days(self) -> int | None:
+        """Return days billed so far, matching Niba's own daily averages."""
+
+        start = _date_or_none(self.start_at)
+        if start is None:
+            return None
+        last = _date_or_none(self.date_last_data) or _date_or_none(self.end_at)
+        if last is None:
+            last = datetime.now(UTC).date()
+        days = (last - start).days
+        return days if days > 0 else None
+
+    @property
+    def remaining_days(self) -> int | None:
+        """Return days left until the period closes, never negative."""
+
+        end = _date_or_none(self.end_at)
+        if end is None:
+            return None
+        days = (end - datetime.now(UTC).date()).days
+        return max(days, 0)
+
+    @property
+    def daily_average_value(self) -> float | None:
+        """Return the daily kWh average, computed if Niba does not send it."""
+
+        if self.average_value is not None:
+            return self.average_value
+        return self._per_day(self.consumption_value)
+
+    @property
+    def daily_average_amount(self) -> float | None:
+        """Return the daily cost average, computed if Niba does not send it."""
+
+        if self.average_amount is not None:
+            return self.average_amount
+        return self._per_day(self.consumption_amount)
+
+    def _per_day(self, total: float | None) -> float | None:
+        days = self.elapsed_days
+        if total is None or days is None:
+            return None
+        return total / days
+
 
 @dataclass(frozen=True)
 class Balance:
@@ -155,6 +203,8 @@ class NibaData:
     balance: Balance | None
     accumulated_floor: float | None = None
     """Lowest value ``accumulated_consumption`` may report (see the property)."""
+    token_expires_at: datetime | None = None
+    """Expiry of the configured JWT, filled in by the coordinator."""
 
     @property
     def last_bill(self) -> Bill | None:
@@ -394,6 +444,9 @@ class NibaApiClient:
         """Fetch and parse wallet and solar battery balances."""
 
         payload = await self._get("/balances")
+        # Logged at debug level because "solar_battery" has been seen mirroring
+        # "amount"; the raw payload is the only way to tell them apart.
+        _LOGGER.debug("Raw /balances payload: %s", payload)
         if not isinstance(payload, Mapping):
             raise NibaPayloadError("Balance response must be an object")
         return parse_balance(payload)
@@ -453,6 +506,21 @@ def _float_or_none(value: Any) -> float | None:
     try:
         return float(value)
     except (TypeError, ValueError):
+        return None
+
+
+def _date_or_none(value: Any) -> date | None:
+    """Parse a Niba date string, tolerating a full ISO timestamp."""
+
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+    except ValueError:
+        pass
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
         return None
 
 
