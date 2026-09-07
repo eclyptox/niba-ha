@@ -478,18 +478,23 @@ class NibaApiClient:
             "accept": "application/json",
         }
         url = f"{self._base_url}{path}"
+        _LOGGER.debug("GET %s", path)
         try:
             async with self._session.get(url, headers=headers) as response:
                 if response.status in (401, 403):
-                    raise NibaAuthError("Niba rejected the token")
+                    raise NibaAuthError(f"Niba rejected the token on {path}")
                 if response.status >= 400:
                     text = await response.text()
-                    raise NibaApiError(f"Niba API error {response.status}: {text}")
+                    # The path matters: a 404 on /cups/... means the CUPS is
+                    # not the one Niba has, which is not obvious from the body.
+                    raise NibaApiError(
+                        f"Niba API error {response.status} on {path}: {text}"
+                    )
                 return await response.json()
         except NibaApiError:
             raise
         except Exception as err:
-            raise NibaApiError("Error communicating with Niba API") from err
+            raise NibaApiError(f"Error communicating with Niba API on {path}") from err
 
 
 def _base64url_decode(value: str) -> bytes:

@@ -153,6 +153,7 @@ async def test_server_error_includes_status_and_body() -> None:
 
     assert "500" in str(err.value)
     assert "boom" in str(err.value)
+    assert "/users/me" in str(err.value), "the failing endpoint must be named"
 
 
 async def test_auth_error_is_not_masked_as_generic_api_error() -> None:
@@ -194,6 +195,25 @@ async def test_non_object_balance_raises_payload_error() -> None:
 
     with pytest.raises(NibaPayloadError):
         await client.get_balance()
+
+
+async def test_cups_errors_name_the_failing_endpoint() -> None:
+    """A 404 on /cups/... is the CUPS being wrong; the path has to be visible."""
+
+    client, _ = _client(
+        {
+            "/consumption-period": _FakeResponse(
+                status=404, text='{"detail":[{"code":"value_error.cups_not_found"}]}'
+            )
+        }
+    )
+
+    with pytest.raises(NibaApiError) as err:
+        await client.get_consumption_period(CUPS)
+
+    message = str(err.value)
+    assert f"/cups/{CUPS}/consumption-period" in message
+    assert "cups_not_found" in message
 
 
 async def test_non_list_bills_raises_payload_error() -> None:
