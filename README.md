@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?logo=homeassistantcommunitystore&logoColor=white)](https://github.com/hacs/integration)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.11%2B-blue?logo=homeassistant&logoColor=white)](https://www.home-assistant.io/)
-[![Tests](https://img.shields.io/badge/tests-85%20passed-brightgreen?logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/tests-103%20passed-brightgreen?logo=pytest&logoColor=white)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Integración personalizada para Home Assistant que consulta el consumo eléctrico, facturas y saldo de los clientes de [Niba](https://niba.es), la cooperativa de energía renovable.
@@ -25,6 +25,17 @@ Integración personalizada para Home Assistant que consulta el consumo eléctric
 | Última factura | Importe de la última factura, con el desglose completo como atributos: período, estado, consumo, base imponible, impuestos, término de potencia y de energía, alquiler del contador y excedentes de autoconsumo |
 | Consumo acumulado | Total histórico en kWh, apto para el Energy Dashboard |
 | Caducidad del token | *(diagnóstico)* Fecha de expiración del JWT, para avisarte por automatización antes de que caduque |
+
+### Energy Dashboard
+
+La integración importa las **lecturas horarias** que publica Niba (consumo de red y vertido a red) como estadísticas de largo plazo, con todo el histórico disponible desde el inicio de tu contrato. No son sensores: son estadísticas que puedes añadir directamente al panel de energía.
+
+Para configurarlo, ve a **Ajustes → Paneles de control → Energía**:
+
+- En **Red eléctrica → Consumo de la red**, añade `Niba <tu CUPS> consumo de red`.
+- Si tienes autoconsumo, en **Devolución a la red** añade `Niba <tu CUPS> vertido a red`.
+
+Los datos se refrescan cada 6 horas y Niba los publica con uno o dos días de retraso, así que el panel mostrará el histórico completo pero no el consumo del día en curso.
 
 Cuando Niba emite una factura nueva, la integración crea una notificación persistente y dispara el evento `niba_new_bill` (con `billing_code`, `period`, `total_amount` y `status`), que puedes usar como disparador de automatizaciones.
 

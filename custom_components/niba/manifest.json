@@ -5,9 +5,12 @@
     "@eclyptox"
   ],
   "config_flow": true,
+  "dependencies": [
+    "recorder"
+  ],
   "documentation": "https://github.com/eclyptox/niba-ha",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/eclyptox/niba-ha/issues",
   "requirements": [],
-  "version": "0.4.0"
+  "version": "0.5.0"
 }

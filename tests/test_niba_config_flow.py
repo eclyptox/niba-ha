@@ -75,7 +75,9 @@ async def _run_flow(hass: HomeAssistant, token: str, cups: str = CUPS):
     )
 
 
-async def test_full_flow_creates_the_entry(hass: HomeAssistant) -> None:
+async def test_full_flow_creates_the_entry(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     with _patch_client():
         result = await _run_flow(hass, _jwt())
 
@@ -85,6 +87,7 @@ async def test_full_flow_creates_the_entry(hass: HomeAssistant) -> None:
 
 
 async def test_long_cups_is_normalized_before_being_stored(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     with _patch_client():
@@ -94,6 +97,7 @@ async def test_long_cups_is_normalized_before_being_stored(
 
 
 async def test_expired_token_is_rejected_without_calling_niba(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     with _patch_client():
@@ -103,28 +107,34 @@ async def test_expired_token_is_rejected_without_calling_niba(
     assert result["errors"] == {CONF_TOKEN: "token_expired"}
 
 
-async def test_malformed_token_is_rejected(hass: HomeAssistant) -> None:
+async def test_malformed_token_is_rejected(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     with _patch_client():
         result = await _run_flow(hass, "not-a-jwt")
 
     assert result["errors"] == {CONF_TOKEN: "invalid_auth"}
 
 
-async def test_token_rejected_by_niba(hass: HomeAssistant) -> None:
+async def test_token_rejected_by_niba(recorder_mock: None, hass: HomeAssistant) -> None:
     with _patch_client(validate_token=NibaAuthError("nope")):
         result = await _run_flow(hass, _jwt())
 
     assert result["errors"] == {CONF_TOKEN: "invalid_auth"}
 
 
-async def test_unreachable_api_reports_cannot_connect(hass: HomeAssistant) -> None:
+async def test_unreachable_api_reports_cannot_connect(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     with _patch_client(validate_token=NibaApiError("down")):
         result = await _run_flow(hass, _jwt())
 
     assert result["errors"] == {"base": "cannot_connect"}
 
 
-async def test_unknown_cups_reports_invalid_cups(hass: HomeAssistant) -> None:
+async def test_unknown_cups_reports_invalid_cups(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     with _patch_client(get_consumption_period=NibaApiError("cups_not_found")):
         result = await _run_flow(hass, _jwt())
 
@@ -132,7 +142,9 @@ async def test_unknown_cups_reports_invalid_cups(hass: HomeAssistant) -> None:
     assert result["errors"] == {CONF_CUPS: "invalid_cups"}
 
 
-async def test_same_cups_twice_is_aborted(hass: HomeAssistant) -> None:
+async def test_same_cups_twice_is_aborted(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     MockConfigEntry(
         domain=DOMAIN,
         unique_id=f"a@b.c:{CUPS}",
@@ -147,6 +159,7 @@ async def test_same_cups_twice_is_aborted(hass: HomeAssistant) -> None:
 
 
 async def test_a_second_cups_on_the_same_account_is_allowed(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     """One Niba account can hold several supply points."""
@@ -164,7 +177,9 @@ async def test_a_second_cups_on_the_same_account_is_allowed(
     assert result["data"][CONF_CUPS] == OTHER_CUPS
 
 
-async def test_reauth_updates_the_stored_token(hass: HomeAssistant) -> None:
+async def test_reauth_updates_the_stored_token(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=f"a@b.c:{CUPS}",
@@ -184,7 +199,9 @@ async def test_reauth_updates_the_stored_token(hass: HomeAssistant) -> None:
     assert entry.data[CONF_TOKEN] == new_token
 
 
-async def test_reauth_rejects_an_expired_token(hass: HomeAssistant) -> None:
+async def test_reauth_rejects_an_expired_token(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=f"a@b.c:{CUPS}",
@@ -204,6 +221,7 @@ async def test_reauth_rejects_an_expired_token(hass: HomeAssistant) -> None:
 
 
 async def test_token_steps_expose_the_portal_url_placeholder(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     """Without the placeholder the dialog would show a literal '{url}'."""
@@ -227,7 +245,9 @@ async def test_token_steps_expose_the_portal_url_placeholder(
     assert result["description_placeholders"]["url"] == NIBA_CLIENT_URL
 
 
-async def test_every_placeholder_in_strings_is_provided(hass: HomeAssistant) -> None:
+async def test_every_placeholder_in_strings_is_provided(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     """Each {placeholder} in strings.json must be filled by the flow."""
 
     import json

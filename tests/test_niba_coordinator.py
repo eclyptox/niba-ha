@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -25,6 +26,22 @@ from custom_components.niba.const import CONF_CUPS, CONF_TOKEN, DOMAIN
 from custom_components.niba.coordinator import EVENT_NEW_BILL, NibaCoordinator
 
 CUPS = "ES0021000000000000AA"
+
+
+@pytest.fixture(autouse=True)
+def stub_statistics_import():
+    """Keep the background statistics import out of the coordinator tests.
+
+    It runs on the recorder's executor, and a task still in flight when the
+    test tears the recorder down races its sqlite connection being closed.
+    `test_statistics_import_rides_the_bills_refresh` covers the wiring.
+    """
+
+    with patch(
+        "custom_components.niba.coordinator.async_import_statistics",
+        new_callable=AsyncMock,
+    ) as mock:
+        yield mock
 
 
 class _FakeClient:
@@ -112,6 +129,7 @@ def _coordinator(hass: HomeAssistant, client: _FakeClient) -> NibaCoordinator:
 
 
 async def test_long_cups_from_an_existing_entry_is_normalized(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     entry = _entry(f"{CUPS}0F")
@@ -123,7 +141,9 @@ async def test_long_cups_from_an_existing_entry_is_normalized(
     assert coordinator._cups == CUPS
 
 
-async def test_bills_are_cached_between_refresh_windows(hass: HomeAssistant) -> None:
+async def test_bills_are_cached_between_refresh_windows(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     client = _FakeClient(bills=[{"id": "1", "act_total_consumption": 100}])
     coordinator = _coordinator(hass, client)
 
@@ -135,7 +155,9 @@ async def test_bills_are_cached_between_refresh_windows(hass: HomeAssistant) -> 
     assert second.bills == first.bills
 
 
-async def test_bills_are_refetched_after_the_cache_window(hass: HomeAssistant) -> None:
+async def test_bills_are_refetched_after_the_cache_window(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     client = _FakeClient(bills=[{"id": "1"}])
     coordinator = _coordinator(hass, client)
 
@@ -147,6 +169,7 @@ async def test_bills_are_refetched_after_the_cache_window(hass: HomeAssistant) -
 
 
 async def test_first_load_records_the_bill_without_notifying(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     events = []
@@ -161,7 +184,9 @@ async def test_first_load_records_the_bill_without_notifying(
     assert coordinator._known_bill_id == "F-1"
 
 
-async def test_a_new_bill_fires_the_bus_event(hass: HomeAssistant) -> None:
+async def test_a_new_bill_fires_the_bus_event(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     events = []
     hass.bus.async_listen(EVENT_NEW_BILL, events.append)
     client = _FakeClient(
@@ -188,21 +213,27 @@ async def test_a_new_bill_fires_the_bus_event(hass: HomeAssistant) -> None:
     assert events[0].data["total_amount"] == 17.34
 
 
-async def test_rejected_token_triggers_reauth(hass: HomeAssistant) -> None:
+async def test_rejected_token_triggers_reauth(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     coordinator = _coordinator(hass, _FakeClient(error=NibaAuthError("nope")))
 
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
 
 
-async def test_api_error_becomes_update_failed(hass: HomeAssistant) -> None:
+async def test_api_error_becomes_update_failed(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     coordinator = _coordinator(hass, _FakeClient(error=NibaApiError("boom")))
 
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
 
 
-async def test_unexpected_error_becomes_update_failed(hass: HomeAssistant) -> None:
+async def test_unexpected_error_becomes_update_failed(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     coordinator = _coordinator(hass, _FakeClient(error=RuntimeError("boom")))
 
     with pytest.raises(UpdateFailed):
@@ -210,6 +241,7 @@ async def test_unexpected_error_becomes_update_failed(hass: HomeAssistant) -> No
 
 
 async def test_accumulated_total_never_drops_when_a_period_closes(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     """The dip between a closed period and its bill must not look like a reset."""
@@ -230,6 +262,7 @@ async def test_accumulated_total_never_drops_when_a_period_closes(
 
 
 async def test_accumulated_total_grows_again_once_the_bill_lands(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     client = _FakeClient(
@@ -250,6 +283,7 @@ async def test_accumulated_total_grows_again_once_the_bill_lands(
 
 
 async def test_seed_accumulated_floor_keeps_the_highest_value(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     coordinator = _coordinator(hass, _FakeClient())
@@ -267,6 +301,7 @@ REAL_CUPS = "ES0021000011349260ME"
 
 
 async def test_stale_cups_is_replaced_with_the_one_on_the_contract(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     """A 404 cups_not_found must recover from /contracts, not just fail."""
@@ -286,7 +321,9 @@ async def test_stale_cups_is_replaced_with_the_one_on_the_contract(
     assert entry.data[CONF_CUPS] == REAL_CUPS
 
 
-async def test_recovered_cups_makes_the_retry_succeed(hass: HomeAssistant) -> None:
+async def test_recovered_cups_makes_the_retry_succeed(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     class _RecoveringClient(_FakeClient):
         async def get_consumption_period(self, cups: str):
             if cups != REAL_CUPS:
@@ -307,7 +344,9 @@ async def test_recovered_cups_makes_the_retry_succeed(hass: HomeAssistant) -> No
     assert data.consumption_period is not None
 
 
-async def test_cups_recovery_is_attempted_only_once(hass: HomeAssistant) -> None:
+async def test_cups_recovery_is_attempted_only_once(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     client = _FakeClient(cups_not_found=True, discovers=REAL_CUPS)
     entry = _entry("ES0021999999999999ZZ")
     entry.add_to_hass(hass)
@@ -321,6 +360,7 @@ async def test_cups_recovery_is_attempted_only_once(hass: HomeAssistant) -> None
 
 
 async def test_other_api_errors_do_not_trigger_rediscovery(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     client = _FakeClient(error=NibaApiError("boom"), discovers=REAL_CUPS)
@@ -333,6 +373,7 @@ async def test_other_api_errors_do_not_trigger_rediscovery(
 
 
 async def test_auth_errors_still_trigger_reauth_not_rediscovery(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     client = _FakeClient(error=NibaAuthError("nope"), discovers=REAL_CUPS)
@@ -345,6 +386,7 @@ async def test_auth_errors_still_trigger_reauth_not_rediscovery(
 
 
 async def test_rediscovery_that_returns_the_same_cups_does_not_loop(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     client = _FakeClient(cups_not_found=True, discovers=CUPS)
@@ -354,3 +396,39 @@ async def test_rediscovery_that_returns_the_same_cups_does_not_loop(
         await coordinator._async_update_data()
 
     assert coordinator._cups == CUPS
+
+
+async def test_statistics_import_rides_the_bills_refresh(
+    recorder_mock: None, hass: HomeAssistant, stub_statistics_import: AsyncMock
+) -> None:
+    """Hourly readings change once a day, so they follow the bills cadence."""
+
+    client = _FakeClient(bills=[{"id": "1"}])
+    coordinator = _coordinator(hass, client)
+
+    await coordinator._async_update_data()
+    await hass.async_block_till_done()
+
+    assert stub_statistics_import.await_count == 1
+    _, passed_client, passed_cups = stub_statistics_import.await_args.args
+    assert passed_client is client
+    assert passed_cups == CUPS
+
+    # A cycle that reuses the cached bills must not re-import.
+    await coordinator._async_update_data()
+    await hass.async_block_till_done()
+
+    assert stub_statistics_import.await_count == 1
+
+
+async def test_a_failing_statistics_import_does_not_break_the_refresh(
+    recorder_mock: None, hass: HomeAssistant, stub_statistics_import: AsyncMock
+) -> None:
+    stub_statistics_import.side_effect = RuntimeError("recorder exploded")
+    client = _FakeClient(bills=[{"id": "1"}])
+    coordinator = _coordinator(hass, client)
+
+    data = await coordinator._async_update_data()
+    await hass.async_block_till_done()
+
+    assert data.consumption_period is not None

@@ -28,6 +28,7 @@ from .const import (
     CONF_TOKEN,
     DOMAIN,
 )
+from .statistics import async_import_statistics
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ class NibaCoordinator(DataUpdateCoordinator[NibaData]):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=DOMAIN,
             update_interval=timedelta(minutes=API_REFRESH_MINUTES),
         )
@@ -163,6 +165,12 @@ class NibaCoordinator(DataUpdateCoordinator[NibaData]):
             self._cached_bills = data.bills
             self._last_bills_fetch = datetime.now(UTC)
             self._check_new_bill(data)
+            # Hourly readings only change once a day; ride the bills cadence.
+            # Tied to the entry so unloading cancels it instead of leaving it
+            # writing to a recorder that is going away.
+            self._entry.async_create_background_task(
+                self.hass, self._import_statistics(), name="niba statistics import"
+            )
             return self._finalize(data)
 
         user, consumption_period, balance = await asyncio.gather(
@@ -178,6 +186,14 @@ class NibaCoordinator(DataUpdateCoordinator[NibaData]):
                 balance=balance,
             )
         )
+
+    async def _import_statistics(self) -> None:
+        """Feed Niba's hourly readings to the Energy Dashboard."""
+
+        try:
+            await async_import_statistics(self.hass, self.client, self._cups)
+        except Exception:
+            _LOGGER.exception("Could not import Niba statistics")
 
     def _check_new_bill(self, data: NibaData) -> None:
         bill = data.last_bill

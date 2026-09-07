@@ -22,6 +22,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/ruff format custom_components tests
 ```
 
+Los tests que montan la integración necesitan `recorder_mock` (la integración declara `dependencies: ["recorder"]`), y esa fixture debe resolverse **antes** de que exista `hass`: de eso se encarga el `conftest.py`, que materializa `recorder_mock` antes de `enable_custom_integrations`. Los tests de coordinator y de sensores anulan `async_import_statistics` con una fixture autouse, porque una importación en vuelo al terminar el test compite con el cierre de sqlite del recorder y provoca un segfault intermitente; el camino real se prueba en `tests/test_niba_statistics.py`.
+
 `pytest.ini` usa `pythonpath = .` y `asyncio_mode = auto`, así que los tests importan `from custom_components.niba.api import ...` y las corrutinas no necesitan marcador. `tests/conftest.py` carga el plugin de HA y activa `enable_custom_integrations`.
 
 CI en `.github/workflows/`: `tests.yml` (ruff + pytest en 3.12 y 3.13) y `validate.yml` (hassfest + HACS action). Los dos deben pasar antes de publicar una versión. Ambas validaciones se pueden correr en local con Docker, sin esperar al push:
@@ -64,6 +66,10 @@ Propiedades derivadas en `NibaData`, no en los sensores: `last_bill` (la más re
 **`sensor.py`** — todo sensor declara `state_class`, o Home Assistant no le guarda estadísticas de largo plazo. Ojo con la combinación: `DEVICE_CLASS_STATE_CLASSES` (en `homeassistant/components/sensor/const.py`) admite **solo `TOTAL`** para `device_class=MONETARY`, así que los sensores en euros no pueden usar `MEASUREMENT` aunque representen un saldo. `test_state_classes_are_valid_for_their_device_class` valida cada descripción contra ese mapeo.
 
 Los sensores son declarativos: `NibaSensorDescription` extiende `SensorEntityDescription` con `value_fn(NibaData)`, `extra_attrs_fn(NibaData)` y `restore_floor`. La tupla `SENSORS` es la única fuente de verdad: añadir un sensor = añadir una entrada. `unique_id` es `f"{entry.entry_id}_{description.key}"`, así que **renombrar una `key` rompe el historial de entidades de los usuarios ya instalados**.
+
+**`statistics.py`** — importa las lecturas horarias de `/cups/{cups}/consumption-daily` como estadísticas *externas* del recorder (`niba:<cups>_energy_consumption` y `..._energy_export`), lo que da al Energy Dashboard histórico medido real en lugar del total que pueden ofrecer los sensores. Se dispara desde el coordinator con la cadencia de las facturas, como tarea de fondo **atada a la entrada** (`entry.async_create_background_task`): con `hass.async_create_task` la tarea sobrevivía a la descarga y seguía escribiendo en un recorder que se estaba cerrando.
+
+**La trampa del cambio de hora.** Las etiquetas `hour` de Niba **no son fiables** en los días de cambio horario: el día de marzo omite `01:00` y manda `02:00`, y tomando las etiquetas al pie de la letra `02:00` y `03:00` locales caen en el mismo instante UTC — una lectura sobrescribe la otra y se pierde energía (en los datos reales, 0,22 kWh y un día corrupto). Por eso `_slots` reparte las lecturas en horas UTC consecutivas desde la medianoche local, en vez de convertir cada etiqueta. Validado con 163 días reales: 3911 filas para 3911 lecturas y diferencia de 0,000000 kWh contra los totales diarios de la API. El invariante está en `test_hourly_rows_always_add_up_to_the_daily_total`; no lo rompas.
 
 **`config_flow.py`** — dos pasos (token → CUPS) más reauth. El `unique_id` es `f"{email}:{cups}"`, de forma que una misma cuenta Niba puede tener varios puntos de suministro; cada entrada es un dispositivo distinto, titulado por su CUPS.
 

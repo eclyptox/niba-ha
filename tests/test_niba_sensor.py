@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import STATE_UNAVAILABLE, EntityCategory
 from homeassistant.core import HomeAssistant
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.niba.api import (
@@ -20,6 +21,21 @@ from custom_components.niba.api import (
 from custom_components.niba.const import CONF_CUPS, CONF_TOKEN, DOMAIN
 
 CUPS = "ES0021000000000000AA"
+
+
+@pytest.fixture(autouse=True)
+def stub_statistics_import():
+    """Stub out the statistics import that setting up the entry triggers.
+
+    It writes through the recorder's executor, which races the recorder
+    shutdown at the end of a test. tests/test_niba_statistics.py covers it.
+    """
+
+    with patch(
+        "custom_components.niba.coordinator.async_import_statistics",
+        new_callable=AsyncMock,
+    ):
+        yield
 
 
 def _niba_data(consumption: float = 406.04) -> NibaData:
@@ -79,7 +95,9 @@ async def _setup(hass: HomeAssistant, data: Any = None) -> MockConfigEntry:
     return entry
 
 
-async def test_setup_creates_every_declared_sensor(hass: HomeAssistant) -> None:
+async def test_setup_creates_every_declared_sensor(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     from custom_components.niba.sensor import SENSORS
 
     await _setup(hass)
@@ -88,7 +106,9 @@ async def test_setup_creates_every_declared_sensor(hass: HomeAssistant) -> None:
     assert len(states) == len(SENSORS)
 
 
-async def test_sensor_values_come_from_the_coordinator(hass: HomeAssistant) -> None:
+async def test_sensor_values_come_from_the_coordinator(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     await _setup(hass)
 
     assert (
@@ -109,7 +129,9 @@ async def test_sensor_values_come_from_the_coordinator(hass: HomeAssistant) -> N
     )
 
 
-async def test_percentage_sensor_is_scaled(hass: HomeAssistant) -> None:
+async def test_percentage_sensor_is_scaled(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     await _setup(hass)
 
     state = hass.states.get(
@@ -118,7 +140,9 @@ async def test_percentage_sensor_is_scaled(hass: HomeAssistant) -> None:
     assert state.state == "12.5"
 
 
-async def test_last_bill_exposes_its_period_as_attributes(hass: HomeAssistant) -> None:
+async def test_last_bill_exposes_its_period_as_attributes(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     await _setup(hass)
 
     state = hass.states.get("sensor.niba_es0021000000000000aa_ultima_factura")
@@ -128,6 +152,7 @@ async def test_last_bill_exposes_its_period_as_attributes(hass: HomeAssistant) -
 
 
 async def test_accumulated_sensor_feeds_the_energy_dashboard(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     await _setup(hass)
@@ -138,6 +163,7 @@ async def test_accumulated_sensor_feeds_the_energy_dashboard(
 
 
 async def test_missing_payload_sections_do_not_break_the_sensors(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     """Every value_fn must tolerate a payload without period or balance."""
@@ -153,6 +179,7 @@ async def test_missing_payload_sections_do_not_break_the_sensors(
 
 
 async def test_daily_average_sensors_expose_nibas_own_figures(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     await _setup(hass)
@@ -167,7 +194,9 @@ async def test_daily_average_sensors_expose_nibas_own_figures(
     )
 
 
-async def test_period_attributes_include_the_day_count(hass: HomeAssistant) -> None:
+async def test_period_attributes_include_the_day_count(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     state = None
     await _setup(hass)
     state = hass.states.get("sensor.niba_es0021000000000000aa_consumo_periodo_actual")
@@ -176,7 +205,9 @@ async def test_period_attributes_include_the_day_count(hass: HomeAssistant) -> N
     assert "dias_restantes" not in state.attributes, "end_at is today, not the close"
 
 
-async def test_last_bill_exposes_the_full_breakdown(hass: HomeAssistant) -> None:
+async def test_last_bill_exposes_the_full_breakdown(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     await _setup(hass)
 
     attrs = hass.states.get(
@@ -188,6 +219,7 @@ async def test_last_bill_exposes_the_full_breakdown(hass: HomeAssistant) -> None
 
 
 async def test_token_expiry_sensor_is_a_diagnostic_timestamp(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     from homeassistant.helpers import entity_registry as er
@@ -204,7 +236,9 @@ async def test_token_expiry_sensor_is_a_diagnostic_timestamp(
     assert entry.entity_category is EntityCategory.DIAGNOSTIC
 
 
-async def test_unload_makes_the_entities_unavailable(hass: HomeAssistant) -> None:
+async def test_unload_makes_the_entities_unavailable(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     entry = await _setup(hass)
 
     assert await hass.config_entries.async_unload(entry.entry_id)
@@ -215,7 +249,9 @@ async def test_unload_makes_the_entities_unavailable(hass: HomeAssistant) -> Non
     assert all(s.state == STATE_UNAVAILABLE for s in states)
 
 
-async def test_every_sensor_declares_a_state_class(hass: HomeAssistant) -> None:
+async def test_every_sensor_declares_a_state_class(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     """Without a state_class Home Assistant keeps no long-term statistics.
 
     Device classes that accept none (TIMESTAMP) are exempt.
@@ -235,6 +271,7 @@ async def test_every_sensor_declares_a_state_class(hass: HomeAssistant) -> None:
 
 
 async def test_state_classes_are_valid_for_their_device_class(
+    recorder_mock: None,
     hass: HomeAssistant,
 ) -> None:
     """Check each description against Home Assistant's own compatibility map."""
@@ -254,7 +291,9 @@ async def test_state_classes_are_valid_for_their_device_class(
     assert not invalid
 
 
-async def test_monetary_sensors_report_statistics(hass: HomeAssistant) -> None:
+async def test_monetary_sensors_report_statistics(
+    recorder_mock: None, hass: HomeAssistant
+) -> None:
     await _setup(hass)
 
     for entity_id in (

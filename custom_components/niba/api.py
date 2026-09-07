@@ -173,6 +173,43 @@ class ConsumptionPeriod:
 
 
 @dataclass(frozen=True)
+class HourMeasurement:
+    """One hourly meter reading inside a day."""
+
+    hour: str | None
+    active_value: float | None
+    """kWh taken from the grid."""
+    out_active_value: float | None
+    """kWh exported to the grid (self-consumption surplus)."""
+    reactive_value: float | None
+
+
+@dataclass(frozen=True)
+class DailyConsumption:
+    """One day of consumption, with its hourly breakdown."""
+
+    date: str | None
+    total_active_value: float | None
+    total_out_active_value: float | None
+    total_reactive_value: float | None
+    daily_consumption_amount: float | None
+    hours: tuple[HourMeasurement, ...]
+    raw: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class MonthlyConsumption:
+    """One month of consumption."""
+
+    date: str | None
+    consumption_value: float | None
+    estimated_consumption_value: float | None
+    consumption_day_avg: float | None
+    self_consumption_energy: float | None
+    raw: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
 class Contract:
     """A Niba supply contract, as returned by ``/contracts``."""
 
@@ -396,6 +433,69 @@ def parse_consumption_period(payload: Mapping[str, Any]) -> ConsumptionPeriod:
     )
 
 
+def parse_consumption_daily(payload: Any) -> tuple[DailyConsumption, ...]:
+    """Parse ``/cups/{cups}/consumption-daily``, oldest day first."""
+
+    if not isinstance(payload, Sequence) or isinstance(payload, str | bytes):
+        raise NibaPayloadError("Daily consumption response must be a list")
+
+    days: list[DailyConsumption] = []
+    for item in payload:
+        if not isinstance(item, Mapping):
+            raise NibaPayloadError("Daily consumption item must be an object")
+        raw_hours = item.get("hour_measurements")
+        hours = [
+            HourMeasurement(
+                hour=_str_or_none(h.get("hour")),
+                active_value=_float_or_none(h.get("active_value")),
+                out_active_value=_float_or_none(h.get("out_active_value")),
+                reactive_value=_float_or_none(h.get("reactive_value")),
+            )
+            for h in (raw_hours if isinstance(raw_hours, Sequence) else [])
+            if isinstance(h, Mapping)
+        ]
+        days.append(
+            DailyConsumption(
+                date=_str_or_none(item.get("date")),
+                total_active_value=_float_or_none(item.get("total_active_value")),
+                total_out_active_value=_float_or_none(
+                    item.get("total_out_active_value")
+                ),
+                total_reactive_value=_float_or_none(item.get("total_reactive_value")),
+                daily_consumption_amount=_float_or_none(
+                    item.get("daily_consumption_amount")
+                ),
+                hours=tuple(hours),
+                raw=item,
+            )
+        )
+    # Niba answers newest first; chronological order is what callers expect.
+    return tuple(sorted(days, key=lambda d: d.date or ""))
+
+
+def parse_consumption_monthly(payload: Any) -> tuple[MonthlyConsumption, ...]:
+    """Parse ``/cups/{cups}/consumption-monthly``, oldest month first."""
+
+    if not isinstance(payload, Sequence) or isinstance(payload, str | bytes):
+        raise NibaPayloadError("Monthly consumption response must be a list")
+
+    months = [
+        MonthlyConsumption(
+            date=_str_or_none(item.get("date")),
+            consumption_value=_float_or_none(item.get("consumption_value")),
+            estimated_consumption_value=_float_or_none(
+                item.get("estimated_consumption_value")
+            ),
+            consumption_day_avg=_float_or_none(item.get("consumption_day_avg")),
+            self_consumption_energy=_float_or_none(item.get("self_consumption_energy")),
+            raw=item,
+        )
+        for item in payload
+        if isinstance(item, Mapping)
+    ]
+    return tuple(sorted(months, key=lambda m: m.date or ""))
+
+
 def parse_contracts(payload: Any) -> tuple[Contract, ...]:
     """Parse ``/contracts``."""
 
@@ -466,6 +566,38 @@ class NibaApiClient:
             raise NibaPayloadError("User response must be an object")
         return parse_user(payload)
 
+    async def get_consumption_daily(
+        self, cups: str, date_start: date, date_end: date
+    ) -> tuple[DailyConsumption, ...]:
+        """Fetch hourly consumption for a date range (both ends inclusive)."""
+
+        cups = normalize_cups(cups)
+        return parse_consumption_daily(
+            await self._get(
+                f"/cups/{cups}/consumption-daily",
+                {
+                    "date_start": date_start.isoformat(),
+                    "date_end": date_end.isoformat(),
+                },
+            )
+        )
+
+    async def get_consumption_monthly(
+        self, cups: str, date_start: date, date_end: date
+    ) -> tuple[MonthlyConsumption, ...]:
+        """Fetch monthly consumption totals for a date range."""
+
+        cups = normalize_cups(cups)
+        return parse_consumption_monthly(
+            await self._get(
+                f"/cups/{cups}/consumption-monthly",
+                {
+                    "date_start": date_start.isoformat(),
+                    "date_end": date_end.isoformat(),
+                },
+            )
+        )
+
     async def get_contracts(self) -> tuple[Contract, ...]:
         """Fetch and parse the user's supply contracts."""
 
@@ -535,15 +667,18 @@ class NibaApiClient:
 
         return await self.get_user()
 
-    async def _get(self, path: str) -> Any:
+    async def _get(self, path: str, params: Mapping[str, str] | None = None) -> Any:
         headers = {
             "authorization": f"token {self._token}",
             "accept": "application/json",
         }
         url = f"{self._base_url}{path}"
-        _LOGGER.debug("GET %s", path)
+        _LOGGER.debug("GET %s %s", path, params or "")
+        kwargs: dict[str, Any] = {"headers": headers}
+        if params:
+            kwargs["params"] = dict(params)
         try:
-            async with self._session.get(url, headers=headers) as response:
+            async with self._session.get(url, **kwargs) as response:
                 if response.status in (401, 403):
                     raise NibaAuthError(f"Niba rejected the token on {path}")
                 if response.status >= 400:
