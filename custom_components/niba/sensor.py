@@ -53,10 +53,8 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
         extra_attrs_fn=lambda d: (
             {
                 "inicio": d.consumption_period.start_at,
-                "fin": d.consumption_period.end_at,
                 "ultima_lectura": d.consumption_period.date_last_data,
                 "dias_transcurridos": d.consumption_period.elapsed_days,
-                "dias_restantes": d.consumption_period.remaining_days,
             }
             if d.consumption_period
             else {}
@@ -89,6 +87,21 @@ SENSORS: tuple[NibaSensorDescription, ...] = (
             round(d.consumption_period.estimated_consumption_amount, 2)
             if d.consumption_period
             and d.consumption_period.estimated_consumption_amount is not None
+            else None
+        ),
+    ),
+    NibaSensorDescription(
+        key="estimated_consumption_value",
+        name="Consumo estimado fin de período",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:lightning-bolt-outline",
+        suggested_display_precision=2,
+        value_fn=lambda d: (
+            round(d.consumption_period.estimated_consumption_value, 2)
+            if d.consumption_period
+            and d.consumption_period.estimated_consumption_value is not None
             else None
         ),
     ),

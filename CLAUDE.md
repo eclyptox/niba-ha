@@ -47,12 +47,13 @@ Flujo de datos: `config_flow` (token + CUPS) → `ConfigEntry` → `NibaCoordina
 **`api.py`** — cliente y parsers. Todos los modelos son `@dataclass(frozen=True)` y conservan el payload original en `.raw`. El parseo es defensivo por diseño porque la API es privada y no versionada:
 
 - `_float_or_none` acepta el formato de tupla monetaria de Niba (`[importe, "EUR"]`) además de números y cadenas.
-- `normalize_cups` recorta el CUPS a los primeros 20 caracteres (mayúsculas, sin espacios): el backend devuelve `value_error.cups_not_found` con el CUPS completo de 22 dígitos. Se aplica en el config flow, en el coordinator y de nuevo dentro de `get_bills` / `get_consumption_period`, de modo que también quedan cubiertas las entradas ya guardadas con el valor largo.
+- `normalize_cups` recorta el CUPS a los primeros 20 caracteres (mayúsculas, sin espacios). Verificado contra la API real: acepta tanto 20 como los 22 del CUPS completo, y sus propias respuestas devuelven `cups_electricity` con 20 — esa es la forma canónica. Se aplica en el config flow, en el coordinator y otra vez en `get_bills` / `get_consumption_period`.
+- `get_contracts` / `discover_cups` leen el CUPS de `/contracts`, que es lo que hace el frontend de Niba en lugar de pedirlo. El config flow ofrece los detectados y el coordinator los usa para recuperarse de un `cups_not_found` (`_fetch_with_cups_recovery`, una sola vez por vida del coordinator para no martillear `/contracts`).
 - `decode_token` / `normalize_token` decodifican el JWT **sin verificar la firma**, solo para leer `exp` y `email`; aceptan el valor pegado con o sin el prefijo `token `. La validación real la hace Niba en `/users/me`.
 - `_get` traduce los fallos a la jerarquía `NibaApiError` → `NibaAuthError` (401/403) / `NibaPayloadError` (forma inesperada). Esta jerarquía es el contrato con el coordinator y el config flow; cualquier excepción nueva debe heredar de `NibaApiError`.
 - `fetch_data` lanza las cuatro peticiones en paralelo con `asyncio.gather`.
 
-`ConsumptionPeriod` deriva `elapsed_days`, `remaining_days` y las medias diarias. `daily_average_value` / `daily_average_amount` devuelven lo que manda Niba y, si falta, lo calculan dividiendo entre `elapsed_days`. Ese conteo **no es inclusivo** (`(fin - inicio).days`): es lo que hace que 1 ago – 2 sept dé 32 días y las medias cuadren con la web (12,7 kWh y 2,28 €).
+`ConsumptionPeriod` deriva `elapsed_days` y las medias diarias. `daily_average_value` / `daily_average_amount` devuelven lo que manda Niba y, si falta, lo calculan dividiendo entre `elapsed_days`. Ese conteo **no es inclusivo** (`(fin - inicio).days`): es lo que hace que las medias cuadren con las de Niba al decimal (1 ago – 7 sept = 37 días, 469,05 / 37 = 12,677 = su `average_value`).
 
 Propiedades derivadas en `NibaData`, no en los sensores: `last_bill` (la más reciente por `end_at`, con caída a `bills[0]` si ninguna tiene fecha) y `accumulated_consumption`.
 
@@ -65,6 +66,16 @@ Propiedades derivadas en `NibaData`, no en los sensores: `last_bill` (la más re
 Los sensores son declarativos: `NibaSensorDescription` extiende `SensorEntityDescription` con `value_fn(NibaData)`, `extra_attrs_fn(NibaData)` y `restore_floor`. La tupla `SENSORS` es la única fuente de verdad: añadir un sensor = añadir una entrada. `unique_id` es `f"{entry.entry_id}_{description.key}"`, así que **renombrar una `key` rompe el historial de entidades de los usuarios ya instalados**.
 
 **`config_flow.py`** — dos pasos (token → CUPS) más reauth. El `unique_id` es `f"{email}:{cups}"`, de forma que una misma cuenta Niba puede tener varios puntos de suministro; cada entrada es un dispositivo distinto, titulado por su CUPS.
+
+## Hechos verificados contra la API real
+
+Comprobado con un token real el 2026-09-07; útil para no volver a investigarlo:
+
+- **El token dura 90 días exactos** (`exp - iat` del JWT).
+- **`/contracts`** devuelve `cups` (22 caracteres), `status` (`Active`), `contract_number`, `product.family` (`Electricity`, y `GAS` para el gas), `product.self_consumption` y la dirección del suministro.
+- **`end_at` de `/consumption-period` es la última fecha con datos, no el cierre del período**: coincide con `date_last_data` y con hoy. Por eso no hay sensor ni atributo de "días restantes"; `elapsed_days` sí es fiable y reproduce el `average_value` de Niba.
+- **`solar_battery` de `/balances` puede igualar a `amount`** legítimamente: es la parte del saldo generada por autoconsumo.
+- **Endpoints que existen y no usamos**: `consumption-daily`, `consumption-monthly`, `consumption-powers`, `appliances-consumption`, `/cups/{cups}` (potencia contratada, tarifa ATR, última lectura) y `cups-gas/{cups}` para gas. Los de consumo diario/mensual encajarían mejor con el Energy Dashboard que el acumulado que calculamos.
 
 ## Al editar
 

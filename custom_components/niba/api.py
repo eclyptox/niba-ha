@@ -132,6 +132,7 @@ class ConsumptionPeriod:
     average_value: float | None
     average_amount: float | None
     estimated_consumption_amount: float | None
+    estimated_consumption_value: float | None
     previous_period_comparison: float | None
     raw: Mapping[str, Any]
 
@@ -147,16 +148,6 @@ class ConsumptionPeriod:
             last = datetime.now(UTC).date()
         days = (last - start).days
         return days if days > 0 else None
-
-    @property
-    def remaining_days(self) -> int | None:
-        """Return days left until the period closes, never negative."""
-
-        end = _date_or_none(self.end_at)
-        if end is None:
-            return None
-        days = (end - datetime.now(UTC).date()).days
-        return max(days, 0)
 
     @property
     def daily_average_value(self) -> float | None:
@@ -179,6 +170,26 @@ class ConsumptionPeriod:
         if total is None or days is None:
             return None
         return total / days
+
+
+@dataclass(frozen=True)
+class Contract:
+    """A Niba supply contract, as returned by ``/contracts``."""
+
+    cups: str | None
+    status: str | None
+    contract_number: str | None
+    family: str | None
+    town: str | None
+    raw: Mapping[str, Any]
+
+    @property
+    def is_active_electricity(self) -> bool:
+        """Return whether this is a live electricity supply."""
+
+        return (self.status or "").lower() == "active" and (
+            self.family or ""
+        ).lower().startswith("electric")
 
 
 @dataclass(frozen=True)
@@ -375,11 +386,41 @@ def parse_consumption_period(payload: Mapping[str, Any]) -> ConsumptionPeriod:
         estimated_consumption_amount=_float_or_none(
             payload.get("estimated_consumption_amount")
         ),
+        estimated_consumption_value=_float_or_none(
+            payload.get("estimated_consumption_value")
+        ),
         previous_period_comparison=_float_or_none(
             payload.get("previous_period_comparison")
         ),
         raw=payload,
     )
+
+
+def parse_contracts(payload: Any) -> tuple[Contract, ...]:
+    """Parse ``/contracts``."""
+
+    if not isinstance(payload, Sequence) or isinstance(payload, str | bytes):
+        raise NibaPayloadError("Contracts response must be a list")
+
+    contracts: list[Contract] = []
+    for item in payload:
+        if not isinstance(item, Mapping):
+            raise NibaPayloadError("Contract item must be an object")
+        product = item.get("product")
+        product = product if isinstance(product, Mapping) else {}
+        address = item.get("address")
+        address = address if isinstance(address, Mapping) else {}
+        contracts.append(
+            Contract(
+                cups=_str_or_none(item.get("cups")),
+                status=_str_or_none(item.get("status")),
+                contract_number=_str_or_none(item.get("contract_number")),
+                family=_str_or_none(product.get("family")),
+                town=_str_or_none(address.get("town")),
+                raw=item,
+            )
+        )
+    return tuple(contracts)
 
 
 def parse_balance(payload: Mapping[str, Any]) -> Balance:
@@ -424,6 +465,28 @@ class NibaApiClient:
         if not isinstance(payload, Mapping):
             raise NibaPayloadError("User response must be an object")
         return parse_user(payload)
+
+    async def get_contracts(self) -> tuple[Contract, ...]:
+        """Fetch and parse the user's supply contracts."""
+
+        return parse_contracts(await self._get("/contracts"))
+
+    async def discover_cups(self) -> str | None:
+        """Return the CUPS of the first active electricity contract.
+
+        Niba's own frontend never asks for a CUPS: it reads ``cups`` from the
+        contract. Using that as the source of truth avoids a stale or mistyped
+        value causing ``value_error.cups_not_found``.
+        """
+
+        contracts = await self.get_contracts()
+        for contract in contracts:
+            if contract.is_active_electricity and contract.cups:
+                return normalize_cups(contract.cups)
+        for contract in contracts:
+            if contract.cups:
+                return normalize_cups(contract.cups)
+        return None
 
     async def get_bills(self, cups: str) -> tuple[Bill, ...]:
         """Fetch and parse historical bills for a CUPS."""

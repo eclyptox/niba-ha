@@ -12,6 +12,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.niba.api import (
+    Contract,
     NibaApiError,
     NibaAuthError,
     NibaData,
@@ -34,16 +35,42 @@ class _FakeClient:
         bills: list[dict[str, Any]] | None = None,
         period_value: float | None = 10.0,
         error: Exception | None = None,
+        cups_not_found: bool = False,
+        discovers: str | None = None,
     ) -> None:
         self.bills = bills if bills is not None else []
         self.period_value = period_value
         self.error = error
+        self.cups_not_found = cups_not_found
+        self.discovers = discovers
         self.bills_calls = 0
         self.period_calls = 0
+        self.discover_calls = 0
+
+    async def get_contracts(self):
+        return (
+            Contract(
+                cups=self.discovers,
+                status="Active",
+                contract_number="1",
+                family="Electricity",
+                town="DENIA",
+                raw={},
+            ),
+        )
+
+    async def discover_cups(self) -> str | None:
+        self.discover_calls += 1
+        return self.discovers
 
     def _maybe_raise(self) -> None:
         if self.error is not None:
             raise self.error
+        if self.cups_not_found:
+            raise NibaApiError(
+                "Niba API error 404 on /cups/X/consumption-period: "
+                '{"detail":[{"code":"value_error.cups_not_found"}]}'
+            )
 
     async def get_user(self):
         self._maybe_raise()
@@ -234,3 +261,96 @@ async def test_seed_accumulated_floor_keeps_the_highest_value(
     coordinator.seed_accumulated_floor(80.0)
 
     assert coordinator._accumulated_floor == 120.0
+
+
+REAL_CUPS = "ES0021000011349260ME"
+
+
+async def test_stale_cups_is_replaced_with_the_one_on_the_contract(
+    hass: HomeAssistant,
+) -> None:
+    """A 404 cups_not_found must recover from /contracts, not just fail."""
+
+    client = _FakeClient(cups_not_found=True, discovers=REAL_CUPS)
+    entry = _entry("ES0021999999999999ZZ")
+    entry.add_to_hass(hass)
+    coordinator = NibaCoordinator(hass, entry, client)
+
+    with pytest.raises(UpdateFailed):
+        # The double keeps failing, so the retry fails too; what matters is
+        # that the CUPS was rediscovered and persisted.
+        await coordinator._async_update_data()
+
+    assert client.discover_calls == 1
+    assert coordinator._cups == REAL_CUPS
+    assert entry.data[CONF_CUPS] == REAL_CUPS
+
+
+async def test_recovered_cups_makes_the_retry_succeed(hass: HomeAssistant) -> None:
+    class _RecoveringClient(_FakeClient):
+        async def get_consumption_period(self, cups: str):
+            if cups != REAL_CUPS:
+                raise NibaApiError(
+                    "Niba API error 404 on /cups/X/consumption-period: "
+                    '{"detail":[{"code":"value_error.cups_not_found"}]}'
+                )
+            return await super().get_consumption_period(cups)
+
+    client = _RecoveringClient(discovers=REAL_CUPS)
+    entry = _entry("ES0021999999999999ZZ")
+    entry.add_to_hass(hass)
+    coordinator = NibaCoordinator(hass, entry, client)
+
+    data = await coordinator._async_update_data()
+
+    assert coordinator._cups == REAL_CUPS
+    assert data.consumption_period is not None
+
+
+async def test_cups_recovery_is_attempted_only_once(hass: HomeAssistant) -> None:
+    client = _FakeClient(cups_not_found=True, discovers=REAL_CUPS)
+    entry = _entry("ES0021999999999999ZZ")
+    entry.add_to_hass(hass)
+    coordinator = NibaCoordinator(hass, entry, client)
+
+    for _ in range(3):
+        with pytest.raises(UpdateFailed):
+            await coordinator._async_update_data()
+
+    assert client.discover_calls == 1, "must not hammer /contracts every cycle"
+
+
+async def test_other_api_errors_do_not_trigger_rediscovery(
+    hass: HomeAssistant,
+) -> None:
+    client = _FakeClient(error=NibaApiError("boom"), discovers=REAL_CUPS)
+    coordinator = _coordinator(hass, client)
+
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+
+    assert client.discover_calls == 0
+
+
+async def test_auth_errors_still_trigger_reauth_not_rediscovery(
+    hass: HomeAssistant,
+) -> None:
+    client = _FakeClient(error=NibaAuthError("nope"), discovers=REAL_CUPS)
+    coordinator = _coordinator(hass, client)
+
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coordinator._async_update_data()
+
+    assert client.discover_calls == 0
+
+
+async def test_rediscovery_that_returns_the_same_cups_does_not_loop(
+    hass: HomeAssistant,
+) -> None:
+    client = _FakeClient(cups_not_found=True, discovers=CUPS)
+    coordinator = _coordinator(hass, client)
+
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+
+    assert coordinator._cups == CUPS

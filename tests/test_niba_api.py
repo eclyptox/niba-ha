@@ -11,11 +11,13 @@ import pytest
 from custom_components.niba.api import (
     NibaAuthError,
     NibaData,
+    NibaPayloadError,
     decode_token,
     normalize_cups,
     parse_balance,
     parse_bills,
     parse_consumption_period,
+    parse_contracts,
     parse_user,
 )
 
@@ -300,16 +302,6 @@ def test_daily_averages_are_computed_when_niba_omits_them() -> None:
     assert round(period.daily_average_amount, 2) == 2.28
 
 
-def test_remaining_days_is_never_negative() -> None:
-    period = parse_consumption_period({"end_at": "2020-01-01"})
-
-    assert period.remaining_days == 0
-
-
-def test_remaining_days_is_none_without_an_end_date() -> None:
-    assert parse_consumption_period({}).remaining_days is None
-
-
 def test_period_without_a_closed_day_yields_no_average() -> None:
     """A period that started today has no elapsed day to divide by."""
 
@@ -320,3 +312,60 @@ def test_period_without_a_closed_day_yields_no_average() -> None:
 
     assert period.elapsed_days is None
     assert period.daily_average_value is None
+
+
+CONTRACTS_PAYLOAD = [
+    {
+        "cups": "ES0021000011349260ME0P",
+        "status": "Active",
+        "contract_number": "00093849",
+        "product": {"family": "Electricity"},
+        "address": {"town": "DENIA"},
+    }
+]
+
+
+def test_parse_contracts_reads_the_cups_niba_has_on_record() -> None:
+    contracts = parse_contracts(CONTRACTS_PAYLOAD)
+
+    assert len(contracts) == 1
+    assert contracts[0].cups == "ES0021000011349260ME0P"
+    assert contracts[0].contract_number == "00093849"
+    assert contracts[0].town == "DENIA"
+    assert contracts[0].is_active_electricity
+
+
+def test_parse_contracts_tolerates_missing_nested_objects() -> None:
+    contracts = parse_contracts([{"cups": "ES0021", "product": None}])
+
+    assert contracts[0].family is None
+    assert contracts[0].town is None
+    assert not contracts[0].is_active_electricity
+
+
+def test_gas_and_inactive_contracts_are_not_active_electricity() -> None:
+    contracts = parse_contracts(
+        [
+            {"cups": "ES1", "status": "Active", "product": {"family": "GAS"}},
+            {
+                "cups": "ES2",
+                "status": "Cancelled",
+                "product": {"family": "Electricity"},
+            },
+        ]
+    )
+
+    assert not any(c.is_active_electricity for c in contracts)
+
+
+def test_parse_contracts_rejects_a_non_list() -> None:
+    with pytest.raises(NibaPayloadError):
+        parse_contracts({"cups": "ES1"})
+
+
+def test_estimated_consumption_value_is_parsed() -> None:
+    period = parse_consumption_period(
+        {"estimated_consumption_value": 469.0462481203004}
+    )
+
+    assert period.estimated_consumption_value == 469.0462481203004

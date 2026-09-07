@@ -45,6 +45,9 @@ def _token_expiry(token: str | None) -> datetime | None:
 
 EVENT_NEW_BILL = f"{DOMAIN}_new_bill"
 
+# Niba's error code when the CUPS it receives is not one of the account's.
+CUPS_NOT_FOUND = "cups_not_found"
+
 
 class NibaCoordinator(DataUpdateCoordinator[NibaData]):
     """Fetch Niba data every hour; refresh bills only every 6 hours."""
@@ -64,6 +67,8 @@ class NibaCoordinator(DataUpdateCoordinator[NibaData]):
         self._known_bill_id: str | None = None
         self._accumulated_floor: float | None = None
         self._token_expires_at = _token_expiry(entry.data.get(CONF_TOKEN))
+        self._entry = entry
+        self._cups_rediscovered = False
         super().__init__(
             hass,
             _LOGGER,
@@ -95,36 +100,84 @@ class NibaCoordinator(DataUpdateCoordinator[NibaData]):
         self._accumulated_floor = data.accumulated_consumption
         return data
 
+    async def _rediscover_cups(self) -> bool:
+        """Replace a stale CUPS with the one Niba has on the contract.
+
+        Niba's frontend reads the CUPS from ``/contracts`` instead of asking
+        for it, so a mistyped or outdated value only shows up as a 404
+        ``cups_not_found``. Asking the contract recovers without user action.
+        """
+
+        if self._cups_rediscovered:
+            return False
+        self._cups_rediscovered = True
+
+        discovered = await self.client.discover_cups()
+        if not discovered or discovered == self._cups:
+            return False
+
+        _LOGGER.warning(
+            "Niba did not recognise the configured CUPS; using %s from the "
+            "contract instead",
+            discovered,
+        )
+        self._cups = discovered
+        self.hass.config_entries.async_update_entry(
+            self._entry, data={**self._entry.data, CONF_CUPS: discovered}
+        )
+        return True
+
     async def _async_update_data(self) -> NibaData:
         try:
-            if self._should_refresh_bills():
-                data = await self.client.fetch_data(self._cups)
-                self._cached_bills = data.bills
-                self._last_bills_fetch = datetime.now(UTC)
-                self._check_new_bill(data)
-                return self._finalize(data)
-
-            user, consumption_period, balance = await asyncio.gather(
-                self.client.get_user(),
-                self.client.get_consumption_period(self._cups),
-                self.client.get_balance(),
-            )
-            return self._finalize(
-                NibaData(
-                    user=user,
-                    bills=self._cached_bills,
-                    consumption_period=consumption_period,
-                    balance=balance,
-                )
-            )
+            return await self._fetch_with_cups_recovery()
         except NibaAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except NibaApiError as err:
             raise UpdateFailed(str(err)) from err
-        except (ConfigEntryAuthFailed, UpdateFailed):
-            raise
         except Exception as err:
             raise UpdateFailed(f"Error inesperado actualizando Niba: {err}") from err
+
+    async def _fetch_with_cups_recovery(self) -> NibaData:
+        """Fetch a cycle, retrying once with the CUPS Niba has on record."""
+
+        try:
+            return await self._fetch()
+        except NibaAuthError:
+            raise
+        except NibaApiError as err:
+            if CUPS_NOT_FOUND not in str(err):
+                raise
+            try:
+                recovered = await self._rediscover_cups()
+            except NibaApiError:
+                recovered = False
+            if not recovered:
+                raise
+            return await self._fetch()
+
+    async def _fetch(self) -> NibaData:
+        """Fetch one cycle, letting Niba errors through untranslated."""
+
+        if self._should_refresh_bills():
+            data = await self.client.fetch_data(self._cups)
+            self._cached_bills = data.bills
+            self._last_bills_fetch = datetime.now(UTC)
+            self._check_new_bill(data)
+            return self._finalize(data)
+
+        user, consumption_period, balance = await asyncio.gather(
+            self.client.get_user(),
+            self.client.get_consumption_period(self._cups),
+            self.client.get_balance(),
+        )
+        return self._finalize(
+            NibaData(
+                user=user,
+                bills=self._cached_bills,
+                consumption_period=consumption_period,
+                balance=balance,
+            )
+        )
 
     def _check_new_bill(self, data: NibaData) -> None:
         bill = data.last_bill

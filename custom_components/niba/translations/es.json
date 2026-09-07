@@ -10,9 +10,9 @@
       },
       "cups": {
         "title": "Niba — CUPS",
-        "description": "Introduce el CUPS de tu punto de suministro. Lo encontrarás en cualquier factura de Niba y empieza por `ES`. Si tienes varios suministros, añade la integración una vez por cada uno.",
+        "description": "Elige el punto de suministro que quieres añadir. La lista viene de tus contratos en Niba.\n\nSi aparece vacía o no ves el tuyo, escribe el CUPS a mano: lo tienes en cualquier factura y empieza por `ES`.\n\nCon varios suministros, añade la integración una vez por cada uno.",
         "data": {
-          "cups": "CUPS"
+          "cups": "Punto de suministro (CUPS)"
         }
       },
       "reauth_confirm": {

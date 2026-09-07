@@ -173,7 +173,7 @@ async def test_period_attributes_include_the_day_count(hass: HomeAssistant) -> N
     state = hass.states.get("sensor.niba_es0021000000000000aa_consumo_periodo_actual")
 
     assert state.attributes["dias_transcurridos"] == 32
-    assert state.attributes["dias_restantes"] >= 0
+    assert "dias_restantes" not in state.attributes, "end_at is today, not the close"
 
 
 async def test_last_bill_exposes_the_full_breakdown(hass: HomeAssistant) -> None:
